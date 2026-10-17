@@ -3,6 +3,11 @@
 Build an OpenCore EFI for the HP Notebook (board 8133, A4-5000 Kabini) test laptop, macOS Monterey 12.
 
     python scripts/build_efi_hp.py <work dir> [--kaberired] [--spoof [--accel]] [--args="..."] [--oclog]
+                                             [--debugoc] [--diag]
+
+    --debugoc   OpenCore's DEBUG binaries (unpacked/OpenCore-<ver>-DEBUG/) for a verbose log
+    --diag      print OpenCore's log on screen through the firmware's own text console (TextRenderer
+                SystemText) and to a file on the stick: for a black screen before the picker
 
 <work dir> must contain:
     unpacked/OpenCore-<ver>-RELEASE/        OpenCorePkg release zip, extracted
@@ -122,6 +127,8 @@ def main():
     work = Path(args[0]).resolve()
     unpacked = work / "unpacked"
     oc = one(unpacked, "OpenCore-*-RELEASE")
+    # Binaries from the DEBUG build with --debugoc; Sample.plist and macserial always from the release.
+    ocbin = one(unpacked, "OpenCore-*-DEBUG") if "--debugoc" in opts else oc
     ssdts = [work / "acpi" / n for n in SSDTS]
     for ssdt in ssdts:
         if not ssdt.exists():
@@ -134,22 +141,22 @@ def main():
     if usb.exists():
         shutil.rmtree(usb)
     efi = usb / "EFI"
-    shutil.copytree(oc / "X64" / "EFI" / "BOOT", efi / "BOOT")
+    shutil.copytree(ocbin / "X64" / "EFI" / "BOOT", efi / "BOOT")
     ocdir = efi / "OC"
     for sub in ("ACPI", "Drivers", "Kexts", "Tools"):
         (ocdir / sub).mkdir(parents=True)
-    shutil.copy2(oc / "X64" / "EFI" / "OC" / "OpenCore.efi", ocdir)
+    shutil.copy2(ocbin / "X64" / "EFI" / "OC" / "OpenCore.efi", ocdir)
     shutil.copytree(oc / "X64" / "EFI" / "OC" / "Resources", ocdir / "Resources")
     for ssdt in ssdts:
         shutil.copy2(ssdt, ocdir / "ACPI")
     for d in DRIVERS:
-        src = oc / "X64" / "EFI" / "OC" / "Drivers" / d
+        src = ocbin / "X64" / "EFI" / "OC" / "Drivers" / d
         if not src.exists():
             src = work / "downloads" / d
             if not src.exists():
                 die(f"{d} missing: put it in {work / 'downloads'}")
         shutil.copy2(src, ocdir / "Drivers")
-    shutil.copy2(oc / "X64" / "EFI" / "OC" / "Tools" / "OpenShell.efi", ocdir / "Tools")
+    shutil.copy2(ocbin / "X64" / "EFI" / "OC" / "Tools" / "OpenShell.efi", ocdir / "Tools")
     shutil.copytree(recovery, usb / "com.apple.recovery.boot")
 
     cfg = plistlib.load(open(oc / "Docs" / "Sample.plist", "rb"))
@@ -211,6 +218,9 @@ def main():
     if "--oclog" in opts:
         # Target 0x41: write opencore-<date>.txt to the root of the EFI partition; errors, warnings and info.
         cfg["Misc"]["Debug"].update(Target=0x41, DisplayLevel=0x80000042)
+    if "--diag" in opts:
+        # Target 0x43: log on, on screen, to a file. DisplayDelay: 0.2 s per line, so a hang's last lines can be read.
+        cfg["Misc"]["Debug"].update(Target=0x43, DisplayLevel=0x80000042, DisplayDelay=200000)
     # SecureBootModel Default: AirportItlwm needs IO80211Family loaded, which Apple Secure Boot provides on Big Sur+
     # (with it Disabled, IO80211Family would have to be force-loaded).
     cfg["Misc"]["Security"].update(AllowSetDefault=True, BlacklistAppleUpdate=True, ExposeSensitiveData=6,
@@ -246,6 +256,10 @@ def main():
     # Keep the firmware's own screen mode: with Resolution=Max the picker never appeared on this Insyde UEFI 2.3.1
     # (black screen, 2026-10-17); switching modes on old GOP drivers is a common cause of that.
     cfg["UEFI"]["Output"].update(ProvideConsoleGop=True, Resolution="", ConsoleMode="")
+    if "--diag" in opts:
+        # The firmware's own text console instead of OpenCore's graphics renderer (whose console switch is a
+        # classic cause of a black screen before the picker on old firmware).
+        cfg["UEFI"]["Output"].update(TextRenderer="SystemText")
     cfg["UEFI"]["Quirks"].update(ReleaseUsbOwnership=True, RequestBootVarRouting=True, UnblockFsConnect=False)
 
     plistlib.dump(cfg, open(ocdir / "config.plist", "wb"), sort_keys=False)
