@@ -243,7 +243,9 @@ def main():
     # --- UEFI -------------------------------------------------------------------------------------
     cfg["UEFI"]["Drivers"] = [{"Arguments": "", "Comment": "", "Enabled": True, "HideVerbose": False,
                                "LoadEarly": False, "Path": d} for d in DRIVERS]
-    cfg["UEFI"]["Output"].update(ProvideConsoleGop=True, Resolution="Max")
+    # Keep the firmware's own screen mode: with Resolution=Max the picker never appeared on this Insyde UEFI 2.3.1
+    # (black screen, 2026-10-17); switching modes on old GOP drivers is a common cause of that.
+    cfg["UEFI"]["Output"].update(ProvideConsoleGop=True, Resolution="", ConsoleMode="")
     cfg["UEFI"]["Quirks"].update(ReleaseUsbOwnership=True, RequestBootVarRouting=True, UnblockFsConnect=False)
 
     plistlib.dump(cfg, open(ocdir / "config.plist", "wb"), sort_keys=False)
