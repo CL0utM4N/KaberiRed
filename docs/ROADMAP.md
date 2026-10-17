@@ -14,8 +14,9 @@ a counter in the report proves the patch in question landed, and one test EFI is
 - [x] Metal has a GFX7 code generator: `libSC` gives both CI and KV families the Bonaire back end. Its code has the
       16-bank interpolation hazard (33 of the Metal driver's 435 built-in GFX6/7 programs), so Kabini/Mullins need the
       interpolation fixer; Kaveri doesn't
-- [ ] CAIL's Kalindi code paths in the stripped `AMDRadeonX4050HWLibs`: function table, golden settings, whether
-      it loads the microcode itself (expected on GCN 2)
+- [x] CAIL's Kalindi code paths in the stripped `AMDRadeonX4050HWLibs`: Bonaire table + 15 Spectre + 3 Kalindi
+      overrides, direct microcode load ([APPLE_KEXTS.md](APPLE_KEXTS.md))
+- [x] First CI build (GitHub Actions, 2026-10-17)
 - [ ] Reference data from the HP A4-5000 ([TEST_MACHINE.md](TEST_MACHINE.md)): Linux `lspci`, VBIOS, register dumps
 
 ## Phase 1: observe

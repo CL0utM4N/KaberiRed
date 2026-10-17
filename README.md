@@ -48,6 +48,7 @@ make DEBUG=1             # build/Debug/KaberiRed.kext
 | `scripts/fetch_macos.py` | Extracts files from Apple's macOS installer over HTTP range requests: no Mac, no 12 GB download, no KDK needed |
 | `scripts/extract_kdk.py` | Extracts files from a Kernel Debug Kit `.dmg`/`.pkg` (needs 7-Zip) |
 | `scripts/macho.py` | Lists symbols of, and disassembles functions in, Apple binaries (`pip install capstone`) |
+| `scripts/match_functions.py` | Names functions in a stripped binary (Monterey's HWLibs) from a symbolised build of the same code |
 | `scripts/dmpstore.py` | Decodes an NVRAM dump: KaberiRed's `KR-progress` and the panic report in `AAPL,PanicInfo` |
 | `scripts/collect_linux_info.sh` | Collects reference data (VBIOS, registers, ACPI) on the test machine under Linux |
 

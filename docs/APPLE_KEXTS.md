@@ -188,6 +188,52 @@ Page tables use **`AMDSIVMM`** (`getPTEValue` `0x6da56`, `getPDEValue` `0x6da3e`
 | Kaveri RLC v57 | identical (`0x3540e0`) |
 | Kaveri MEC2 v396 | not found (a different version, presumably) |
 
+### CAIL's KV code path in the stripped X4050HWLibs
+
+Named by comparison with Sequoia's symbolised `AMDRadeonX4000HWLibs` (same CAIL source, newer build), with
+`scripts/match_functions.py`: register-immediate fingerprints, plus the order of the function pointers each
+`*_InitFunctionPointer` installs. The device tables correspond row for row (Monterey's Kalindi rows point at caps
+`0x16afd0`/`0x16b050` and golden settings `0x349ad0`; Godavari `0x16b390`/`0x2803c0`; Spectre `0x16af50`/`0x353c80`).
+
+The dispatch (`CAILInitFunctionPointer`, around `0x1e640`) is the same as Sequoia's: with the CI caps (`0x125`)
+enabled it calls **`Cail_Bonaire_InitFunctionPointer`** (`0x6c66`), **`Cail_Spectre_InitFunctionPointer`** (`0x42eaa`),
+**`Cail_Kalindi_InitFunctionPointer`** (`0x3fc48`) and `Cail_Hawaii_InitFunctionPointer` (`0x3b99f`), each checking its
+own caps. `CailCapsEnabled` is `0x12810`. The adapter structure is 8 bytes shorter than Sequoia's at the front (family
+at `adapter+0x188`, external revision at `+0x194`).
+
+So on Kabini, CAIL runs **the Bonaire implementation (97 function pointers) with 15 Spectre (KV) overrides and 3
+Kalindi ones**:
+
+| Adapter offset | Monterey | Function |
+|---|---|---|
+| `+0xee8` | `0x42fad` | `Spectre_SetupCgReferenceClock` |
+| `+0xef0` | `0x42258` | `Cail_Spectre_MemoryConfigAndSize` |
+| `+0xf00` | `0x42349` | `Cail_Spectre_GetIntegrateAsicFbMcBaseAddr` |
+| `+0xf28` | `0x422b0` | `Cail_Spectre_ReserveFbMcRange` |
+| `+0xed0` | `0x42fcd` | `Spectre_UpdateSwConstantForHwConfig` |
+| `+0x1390` | `0x430ea` | `Spectre_CheckDsmuSupport` |
+| `+0x12f8` | `0x43125` | `Spectre_GetRlcSaveRestoreRegisterListInfo` |
+| `+0x1310` | `0x4316a` | `Spectre_PowerGatingControl` |
+| `+0xff0` | `0x43187` | `Spectre_CheckAcpHarvested` (Kalindi: dummy `0x1db9a`) |
+| `+0xee0` | `0x42d88` | `Cail_Spectre_CheckFireGL` |
+| `+0x1380` | `0x42dfd` | **`Cail_Spectre_EnableAts`** (CarrizoRed had to skip it: IOMMUv2 features macOS doesn't set up) |
+| `+0x1330` | `0x431d0` | `Spectre_EventNotification` |
+| `+0x1320`, `+0x1328` | `0x42bc2`, `0x42cbe` | `Spectre_EnterRlcSafeMode`, `Spectre_ExitRlcSafeMode` |
+| `+0x1398` | `0x3f9dc` | `Cail_Kalindi_SetSmuDfsBypassMode` |
+
+Also matched: `Cail_Spectre_InitializePowerGating` `0x424bf`, the Spectre power-gating helpers `0x427a7`-`0x428fb`,
+`Cail_Kalindi_Save/RestoreRegistersForTdr` `0x3fc91`/`0x3fd47`.
+
+Consequences:
+- **Microcode**: `Cail_Bonaire_LoadUcode` waits for an SMU load only when the Carrizo caps (`0x53`) are set; for KV it
+  writes the CP/RLC/SDMA RAMs directly, as GCN 2 should. No SMU loader (CarrizoRed's biggest Stoney job) is expected.
+- **ASIC set-up** is Bonaire's table (`BonaireAsicSetupTable` in Sequoia, 20 steps): golden settings, ucode buffer,
+  `init_ECC`, RLC halt/reset/init/unhalt, power gating, LBPW, clock gating, nonsurface aperture, **PCIe Gen3, link
+  width, ASPM, extended tags**, UVD/VCE/ACP/SAMU clocks, **`init_enable_ats`**. Linux skips the PCIe steps on IGPs and
+  CarrizoRed skipped ATS: trace these on the first accelerated boot.
+- **PowerPlay**: decide on hardware. Start with the Dummy back end (`PP_PhmUseDummyBackEnd`, a key this PowerPlay
+  reads) and record what `PHM_Initialize` returns.
+
 ### Files (12.7.6)
 
 From `fixup.manifest`: the AMD kexts with binaries are `AMD7000Controller` (SI), **`AMD8000Controller`** (CI, DCE 8),
