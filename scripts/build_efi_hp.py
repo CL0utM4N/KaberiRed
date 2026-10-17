@@ -4,6 +4,7 @@ Build an OpenCore EFI for the HP Notebook (board 8133, A4-5000 Kabini) test lapt
 
     python scripts/build_efi_hp.py <work dir> [--kaberired] [--spoof [--accel]] [--args="..."] [--oclog]
                                              [--debugoc] [--diag] [--nowifi] [--xhciprobe] [--fchxhcifix] [--nousb2]
+                                             [--minimal]
 
     --debugoc   OpenCore's DEBUG binaries (unpacked/OpenCore-<ver>-DEBUG/) for a verbose log
     --diag      print OpenCore's log on screen through the firmware's own text console (TextRenderer
@@ -208,6 +209,10 @@ def main():
     adds = []
     # --nowifi: leave AirportItlwm out (suspected of the freeze in Recovery, 2026-10-17).
     kexts = [k for k in KEXTS if not ("--nowifi" in opts and k[1] == "AirportItlwm")]
+    # --minimal: baseline with only what macOS needs on AMD (Lilu + VirtualSMC), to tell the add-on kexts (battery/EC,
+    # PS/2, RestrictEvents, Wi-Fi) apart from macOS itself in the total freeze after rooting (2026-10-17).
+    if "--minimal" in opts:
+        kexts = [k for k in KEXTS if k[1] in ("Lilu", "VirtualSMC")]
     kexts += [XHCIPROBE_KEXT] if "--xhciprobe" in opts else []
     kexts += [FCHXHCIFIX_KEXT] if "--fchxhcifix" in opts else []
     for pattern, exe, comment in kexts + ([KABERIRED_KEXT] if with_kr else []):

@@ -60,6 +60,11 @@ Monterey.
   samples in its first 2 s, as if the CPU was nearly saturated by interrupts. FCHXHCIFix (matched to 7814) never
   started. Hypothesis: an interrupt storm from the FCH's EHCI/OHCI controllers (shared legacy IRQs 17/18; Linux applies
   AMD-specific EHCI quirks to them). Next test: `--nousb2` keeps Apple's EHCI/OHCI drivers off them.
+- **`--nousb2`:** same freeze (138 samples in the first 2 s window), so not EHCI/OHCI. Caps Lock dead at the freeze:
+  the CPU is stuck, not just the screen. The OpenCore log (DEBUG) is clean: FID 0x14 DID 1, TSC 1497 MHz, **FSB 99.8
+  MHz** passed to the kernel (`OCAK: BusFreq = 99812867Hz`), MSR 35h 4/4, every AMD_Vanilla patch applied, every kext
+  injected, AppleIntelCPUPowerManagement dummied, ExitBootServices reached. Next: a baseline with only Lilu and
+  VirtualSMC (`--minimal`), to separate the add-on kexts (battery/EC, PS/2) from macOS itself.
 
 1. Monterey 12.7.6 with OpenCore and AMD_Vanilla, **no KaberiRed**: does it reach the desktop on the firmware
    framebuffer? Note the boot-args and SMBIOS used.
