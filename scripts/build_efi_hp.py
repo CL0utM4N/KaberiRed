@@ -4,7 +4,7 @@ Build an OpenCore EFI for the HP Notebook (board 8133, A4-5000 Kabini) test lapt
 
     python scripts/build_efi_hp.py <work dir> [--kaberired] [--spoof [--accel]] [--args="..."] [--oclog]
                                              [--debugoc] [--diag] [--nowifi] [--xhciprobe] [--fchxhcifix] [--nousb2]
-                                             [--minimal]
+                                             [--minimal] [--noecgpe]
 
     --debugoc   OpenCore's DEBUG binaries (unpacked/OpenCore-<ver>-DEBUG/) for a verbose log
     --diag      print OpenCore's log on screen through the firmware's own text console (TextRenderer
@@ -175,6 +175,15 @@ def main():
     cfg["ACPI"]["Add"] = [{"Comment": SSDTS[n], "Enabled": True, "Path": n} for n in SSDTS]
     cfg["ACPI"]["Delete"] = []
     cfg["ACPI"]["Patch"] = []
+    if "--noecgpe" in opts:
+        # Test: keep macOS from listening to the EC's event line (GPE 3), in case the EC floods it (the battery is dead,
+        # and _Q09 is the battery-status event). Renames only EC0's Name (_GPE, 0x03): its bytes occur once in the
+        # DSDT, apart from the root \_GPE scope. The EC still answers reads; its events (lid, AC, hotkeys) are lost.
+        cfg["ACPI"]["Patch"].append({
+            "Base": "", "BaseSkip": 0, "Comment": "EC0 _GPE to XGPE (no EC events)", "Count": 1, "Enabled": True,
+            "Find": bytes.fromhex("085F4750450A03"), "Limit": 0, "Mask": b"", "OemTableId": bytes(8),
+            "Replace": bytes.fromhex("08584750450A03"), "ReplaceMask": b"", "Skip": 0, "TableLength": 0,
+            "TableSignature": b"DSDT"})
     cfg["ACPI"]["Quirks"].update(FadtEnableReset=False, NormalizeHeaders=False, RebaseRegions=False,
                                  ResetHwSig=False, ResetLogoStatus=True, SyncTableIds=False)
 
@@ -209,10 +218,12 @@ def main():
     adds = []
     # --nowifi: leave AirportItlwm out (suspected of the freeze in Recovery, 2026-10-17).
     kexts = [k for k in KEXTS if not ("--nowifi" in opts and k[1] == "AirportItlwm")]
-    # --minimal: baseline with only what macOS needs on AMD (Lilu + VirtualSMC), to tell the add-on kexts (battery/EC,
+    # --minimal: baseline with only what macOS needs on AMD (Lilu + VirtualSMC, + ECEnabler), to tell the add-on kexts (battery/EC,
     # PS/2, RestrictEvents, Wi-Fi) apart from macOS itself in the total freeze after rooting (2026-10-17).
     if "--minimal" in opts:
-        kexts = [k for k in KEXTS if k[1] in ("Lilu", "VirtualSMC")]
+        # ECEnabler stays: without it the EC's _REG fails (AE_BAD_PARAMETER in EC0.ITLB/ECRI/_REG: the EC has fields
+        # wider than a byte, which AppleACPIEC can't access), so the firmware's EC handshake never completes.
+        kexts = [k for k in KEXTS if k[1] in ("Lilu", "VirtualSMC", "ECEnabler")]
     kexts += [XHCIPROBE_KEXT] if "--xhciprobe" in opts else []
     kexts += [FCHXHCIFIX_KEXT] if "--fchxhcifix" in opts else []
     for pattern, exe, comment in kexts + ([KABERIRED_KEXT] if with_kr else []):

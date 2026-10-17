@@ -65,6 +65,12 @@ Monterey.
   MHz** passed to the kernel (`OCAK: BusFreq = 99812867Hz`), MSR 35h 4/4, every AMD_Vanilla patch applied, every kext
   injected, AppleIntelCPUPowerManagement dummied, ExitBootServices reached. Next: a baseline with only Lilu and
   VirtualSMC (`--minimal`), to separate the add-on kexts (battery/EC, PS/2) from macOS itself.
+- **Baseline (Lilu + VirtualSMC):** froze *earlier*, right after `CoreAnalyticsHub`, before USB or PS/2. Without
+  ECEnabler the EC's `_REG` fails (`AE_BAD_PARAMETER` from the EmbeddedControl handler in `EC0.ITLB`/`ECRI`/`_REG`):
+  ECEnabler is required on this DSDT. The freeze point moves with what's loaded, so it isn't one driver: something
+  arrives over time and swamps the CPU. **The battery is dead**, and every earlier boot logged SMCBatteryManager's
+  "battery 0 has no remaining capacity". Lead: an EC event (SCI/GPE 3) flood, e.g. `_Q09` (battery status). Next
+  test: `--minimal --noecgpe` (Lilu, VirtualSMC, ECEnabler; EC0's `_GPE` renamed so macOS ignores EC events).
 
 1. Monterey 12.7.6 with OpenCore and AMD_Vanilla, **no KaberiRed**: does it reach the desktop on the firmware
    framebuffer? Note the boot-args and SMBIOS used.
