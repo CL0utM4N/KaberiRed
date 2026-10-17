@@ -11,6 +11,7 @@
 //
 
 #include "kern_kr.hpp"
+#include "kern_platprobe.hpp"
 #include "kern_vbios.hpp"
 
 #include <Headers/kern_api.hpp>
@@ -371,6 +372,8 @@ KRDriver *KRDriver::callback = nullptr;
 
 void KRDriver::init() {
 	callback = this;
+	// First, before anything of ours touches the hardware: the read-only platform probe (-krplatprobe).
+	PlatformProbe::start();
 	SYSLOG("kr", "KaberiRed starting on kernel %d.%d", getKernelVersion(), getKernelMinorVersion());
 	lilu.onPatcherLoadForce(
 		[](void *user, KernelPatcher &patcher) { static_cast<KRDriver *>(user)->processPatcher(patcher); }, this);
