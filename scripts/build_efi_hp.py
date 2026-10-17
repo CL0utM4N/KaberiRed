@@ -3,7 +3,7 @@
 Build an OpenCore EFI for the HP Notebook (board 8133, A4-5000 Kabini) test laptop, macOS Monterey 12.
 
     python scripts/build_efi_hp.py <work dir> [--kaberired] [--spoof [--accel]] [--args="..."] [--oclog]
-                                             [--debugoc] [--diag]
+                                             [--debugoc] [--diag] [--nowifi]
 
     --debugoc   OpenCore's DEBUG binaries (unpacked/OpenCore-<ver>-DEBUG/) for a verbose log
     --diag      print OpenCore's log on screen through the firmware's own text console (TextRenderer
@@ -192,7 +192,9 @@ def main():
 
     # --- Kernel -----------------------------------------------------------------------------------
     adds = []
-    for pattern, exe, comment in KEXTS + ([KABERIRED_KEXT] if with_kr else []):
+    # --nowifi: leave AirportItlwm out (suspected of the freeze in Recovery, 2026-10-17).
+    kexts = [k for k in KEXTS if not ("--nowifi" in opts and k[1] == "AirportItlwm")]
+    for pattern, exe, comment in kexts + ([KABERIRED_KEXT] if with_kr else []):
         src = one(unpacked, pattern)
         if "/PlugIns/" not in pattern:
             shutil.copytree(src, ocdir / "Kexts" / src.name)
