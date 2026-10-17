@@ -17,7 +17,7 @@ a counter in the report proves the patch in question landed, and one test EFI is
 - [x] CAIL's Kalindi code paths in the stripped `AMDRadeonX4050HWLibs`: Bonaire table + 15 Spectre + 3 Kalindi
       overrides, direct microcode load ([APPLE_KEXTS.md](APPLE_KEXTS.md))
 - [x] First CI build (GitHub Actions, 2026-10-17)
-- [ ] Reference data from the HP A4-5000 ([TEST_MACHINE.md](TEST_MACHINE.md)): Linux `lspci`, VBIOS, register dumps
+- [x] Reference data from the HP A4-5000 ([TEST_MACHINE.md](TEST_MACHINE.md)): IDs, ACPI tables, VBIOS (no VFCT), memory map; registers come from KaberiRed's first report
 
 ## Phase 1: observe
 

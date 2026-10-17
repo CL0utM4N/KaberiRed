@@ -4,11 +4,18 @@
 
 | | |
 |---|---|
-| CPU | A4-5000: 4 × Jaguar, 1.5 GHz. **No AVX2/BMI2/FMA**, so macOS uses the plain `x86_64` dyld shared cache, not `x86_64h` |
-| GPU | Radeon HD 8330: 1002:9830 (expected), GCN 2 gfx703, 2 CUs, DCE 8.3, UMA carve-out |
-| Model, BIOS version | _to fill in_ |
-| Display | internal eDP panel (resolution _to fill in_), external ports _to fill in_ |
-| UMA frame buffer size | _to fill in_ (many HP BIOSes don't offer a setting) |
+| CPU | A4-5000: 4 × Jaguar, 1.5 GHz (family 16h model 0 stepping 1). AVX, BMI1, MOVBE, F16C; **no AVX2/BMI2/FMA**, so macOS uses the plain `x86_64` dyld shared cache, not `x86_64h` |
+| GPU | Radeon HD 8330: **1002:9832 rev 0x00**, subsystem 103C:8133; GCN 2 gfx703, 2 CUs, DCE 8.3 |
+| Model, firmware | HP Notebook, board 8133, Insyde BIOS **F.12 (2015-07-30)**, KBC 98.0C |
+| Memory | 2 × 4 GB DDR3-1333 (dual channel, 128-bit) |
+| UMA carve-out | **512 MB**; BAR0 256 MB at `0xE0000000` (smaller than the carve-out), MMIO (BAR5) 256 KB at `0xF2900000`, doorbells 8 MB at `0xF2000000`. E820 reserves `0xBFC00000`-`0xDFFFFFFF`, which presumably holds the carve-out |
+| Display | eDP panel 1366×768 (HPD1), HDMI (HPD2), VGA (DAC1) |
+| VBIOS | "AMD Fusion Kalindi Generic VBIOS", 2015-03-18, 59,904 bytes; SetPixelClock rev 6 (Apple's `AtiSetPixelClock_V1_V6`), PowerPlayInfo rev 6.1, IntegratedSystemInfo rev 1.8 |
+| **No ACPI VFCT table** | the VBIOS isn't published through ACPI. KaberiRed falls back to the legacy ROM shadow at `0xC0000`; the dumped copy (`KaberiRed-RE/…/gpu/pci-rom.bin`) can be injected as `ATY,bin_image` through DeviceProperties if that fails |
+| Other devices | FCH xHCI 1022:7814, EHCI/OHCI 1022:7808/7807, SATA AHCI 1022:7804, SD 1022:7813, HD Audio 1022:780D, HDMI audio 1002:9840, Realtek RTL810xE Ethernet 10EC:8136, Intel Wireless 7260 8086:08B1 |
+
+Under Linux (`radeon`, kernel 6.17) the GPU comes up completely: kabini microcode, all 8 rings and IB tests pass, UVD
+1.64 and VCE 40.2.2, DPM on, MSI interrupts.
 
 Jaguar is a family 16h CPU: macOS needs the AMD_Vanilla kernel patches for 15h/16h, as on CarrizoRed's machines.
 On CarrizoRed's APUs the FCH's USB 3 controller never delivered interrupts to macOS (see `FCHXHCIFix`); Kabini's

@@ -56,6 +56,37 @@ static bool isAtomBios(const uint8_t *image, uint32_t size) {
 	return !memcmp(magic, "ATOM", 4) || !memcmp(magic, "MOTA", 4);
 }
 
+// Not every firmware publishes VFCT (the HP A4-5000 laptop doesn't). The boot GPU's option ROM is then usually still
+// shadowed at the legacy VGA ROM address, which is where Linux's PCI ROM read finds it (pci_map_rom, ROM shadow).
+// Accept it only if it is an ATOM BIOS whose PCI data structure names this exact device.
+bool VBIOS::injectFromShadow(IOPCIDevice *pci, uint16_t vendorId, uint16_t deviceId) {
+	static constexpr uint64_t ShadowBase = 0xC0000;
+	static constexpr uint32_t ShadowSize = 0x20000;
+	auto *desc = IOMemoryDescriptor::withPhysicalAddress(ShadowBase, ShadowSize, kIODirectionIn);
+	auto *map = desc ? desc->map() : nullptr;
+	OSSafeReleaseNULL(desc);
+	if (!map) {
+		setStatus(pci, "no VFCT, and the legacy ROM shadow couldn't be mapped");
+		return false;
+	}
+	auto *rom = reinterpret_cast<const uint8_t *>(map->getVirtualAddress());
+	uint32_t size = static_cast<uint32_t>(rom[2]) * 512;
+	uint32_t pcir = static_cast<uint32_t>(rom[0x18]) | static_cast<uint32_t>(rom[0x19]) << 8;
+	bool ok = rom[0] == 0x55 && rom[1] == 0xAA && size >= 0x200 && size <= ShadowSize && pcir + 8 <= size &&
+		!memcmp(rom + pcir, "PCIR", 4) && (rom[pcir + 4] | rom[pcir + 5] << 8) == vendorId &&
+		(rom[pcir + 6] | rom[pcir + 7] << 8) == deviceId && isAtomBios(rom, size);
+	if (ok) {
+		pci->setProperty(ImageProperty, const_cast<uint8_t *>(rom), size);
+		pci->setProperty("KaberiRed,vbios-status", "injected from the legacy ROM shadow (no VFCT)");
+		SYSLOG("vbios", "injected %s from the ROM shadow at 0x%llX (%u bytes)", ImageProperty, ShadowBase, size);
+	} else {
+		setStatus(pci, "no VFCT, and no ATOM BIOS for this device in the ROM shadow: inject ATY,bin_image "
+			"through DeviceProperties");
+	}
+	map->release();
+	return ok;
+}
+
 bool VBIOS::inject(IOPCIDevice *pci, uint16_t vendorId, uint16_t deviceId) {
 	if (auto *existing = OSDynamicCast(OSData, pci->getProperty(ImageProperty))) {
 		SYSLOG("vbios", "%s already present (%u bytes), leaving it alone", ImageProperty, existing->getLength());
@@ -64,7 +95,7 @@ bool VBIOS::inject(IOPCIDevice *pci, uint16_t vendorId, uint16_t deviceId) {
 
 	auto *table = copyAcpiTable(pci, "VFCT");
 	if (!table)
-		return false;
+		return injectFromShadow(pci, vendorId, deviceId);
 
 	auto *base = static_cast<const uint8_t *>(const_cast<OSData *>(table)->getBytesNoCopy());
 	uint32_t tableSize = table->getLength();

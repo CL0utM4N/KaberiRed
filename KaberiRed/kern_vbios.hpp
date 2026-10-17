@@ -71,6 +71,12 @@ namespace VBIOS {
 	 */
 	bool inject(IOPCIDevice *pci, uint16_t vendorId, uint16_t deviceId);
 
+	/**
+	 *  Fallback when there's no VFCT: the boot GPU's option ROM as shadowed at the legacy VGA ROM address (0xC0000),
+	 *  accepted only if it's an ATOM BIOS whose PCI data structure names this vendor and device.
+	 */
+	bool injectFromShadow(IOPCIDevice *pci, uint16_t vendorId, uint16_t deviceId);
+
 	// ATOM master data table indices (atombios.h ATOM_MASTER_LIST_OF_DATA_TABLES).
 	static constexpr uint32_t PowerPlayInfoTable = 15;
 
