@@ -47,6 +47,12 @@ supports natively; the FCH xHCI (1022:7814) is untested under macOS. In OpenCore
 join Wi-Fi in Recovery (no Ethernet driver), erase the internal disk as APFS in Disk Utility, then Reinstall macOS
 Monterey.
 
+### Install log
+- **2026-10-17, first EFI:** black screen, no picker; the OpenCore file log was 256 KB of zeros. With `--debugoc
+  --diag` (log on screen through the firmware's text console) it stopped at `Driver HfsPlus.efi at 1 is being
+  loaded`: Apple's `HfsPlus.efi` executes **RDRAND, which Jaguar lacks**. `HfsPlusLegacy.efi` (no RDRAND) fixed it:
+  the picker appears and Recovery boots.
+
 1. Monterey 12.7.6 with OpenCore and AMD_Vanilla, **no KaberiRed**: does it reach the desktop on the firmware
    framebuffer? Note the boot-args and SMBIOS used.
 2. KaberiRed (debug) + Lilu (debug), **no spoof**, boot-args `-krdbg krpanicat=60 debug=0x100 keepsyms=1`: at 60 s
