@@ -4,7 +4,7 @@ Build an OpenCore EFI for the HP Notebook (board 8133, A4-5000 Kabini) test lapt
 
     python scripts/build_efi_hp.py <work dir> [--kaberired] [--spoof [--accel]] [--args="..."] [--oclog]
                                              [--debugoc] [--diag] [--nowifi] [--xhciprobe] [--fchxhcifix] [--nousb2]
-                                             [--minimal] [--noecgpe] [--novarwrite]
+                                             [--minimal] [--noecgpe] [--novarwrite] [--nohlt]
 
     --debugoc   OpenCore's DEBUG binaries (unpacked/OpenCore-<ver>-DEBUG/) for a verbose log
     --diag      print OpenCore's log on screen through the firmware's own text console (TextRenderer
@@ -253,6 +253,18 @@ def main():
     cfg["Kernel"]["Block"] = []
     cfg["Kernel"]["Force"] = []
     cfg["Kernel"]["Patch"] = amd_vanilla_patches(work / "downloads" / "AMD_Vanilla-patches.plist")
+    if "--nohlt" in opts:
+        # Test (2026-10-17): the platform probe's own 250 ms sleep stopped waking ~2 s in while busy threads went on
+        # printing, then everything stopped: timer and keyboard interrupts no longer reach the CPU once it idles. With
+        # no CPU PM kext (always so on AMD), machine_idle() idles with plain `sti; hlt` (pmCPU.c); on AMD a HLT on every
+        # core can send the CPU into C1E or an SMM handler (MSR C001_0055), where Linux uses the FCH's C-state port
+        # (_CST: I/O 0x414). Make it `sti; nop`: the idle thread spins with interrupts on. Hotter: short tests only.
+        # Monterey 21.6.0: `fb f4 fa` once in _machine_idle (+0x1C8).
+        cfg["Kernel"]["Patch"].append({
+            "Arch": "x86_64", "Base": "_machine_idle", "Comment": "machine_idle: sti; hlt -> sti; nop (test)",
+            "Count": 1, "Enabled": True, "Find": bytes.fromhex("FBF4FA"), "Identifier": "kernel", "Limit": 0x400,
+            "Mask": b"", "MaxKernel": "21.99.99", "MinKernel": "21.0.0", "Replace": bytes.fromhex("FB90FA"),
+            "ReplaceMask": b"", "Skip": 0})
     cfg["Kernel"]["Emulate"].update(DummyPowerManagement=True, Cpuid1Data=b"", Cpuid1Mask=b"")
     cfg["Kernel"]["Quirks"].update(
         AppleCpuPmCfgLock=False, AppleXcpmCfgLock=False, AppleXcpmExtraMsrs=False, DisableIoMapper=False,

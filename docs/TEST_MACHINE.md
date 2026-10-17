@@ -80,6 +80,15 @@ Monterey.
   abruptly, interrupts dead, no panic, i.e. the CPU is in firmware code that doesn't return. NVRAM (`nvram0.bin`)
   holds no variable written by macOS. Next test: `--novarwrite` (OpenRuntime's `DisableVariableWrite`, refusing
   macOS's NVRAM writes, which go through the Insyde firmware's SMM variable service).
+- **`--novarwrite`:** same freeze: not NVRAM. But the probe showed the mechanism: `KRP 6` at t=1817 ms, then no
+  `KRP 7`, while other threads went on printing (`AppleUSBLegacyRoot` at 3.66 s, `MAC Framework`, `AMFI…`, `mcache…`)
+  until the screen stopped. **The probe's 250 ms timer sleep never woke**: the timer interrupt (and the keyboard's)
+  stops reaching the CPU, and the machine dies once every thread waits on a timer. XHCIProbe did the same (one report,
+  then nothing). On AMD with no CPU PM kext, XNU idles with plain `sti; hlt` (`machine_idle`, pmCPU.c); all cores
+  halted can mean C1E or an SMM trap (MSR C001_0055 CmpHalt bits). Linux idles this machine through `_CST` C2 = I/O
+  read of port 0x414 (400 µs) and HLT only for short idles. The laptop has no fan (the firmware expects one).
+  Next test: `--nohlt` (kernel patch `sti; hlt` → `sti; nop` in `_machine_idle`, 21.x): if the freezes stop, idle is
+  the cause.
 
 1. Monterey 12.7.6 with OpenCore and AMD_Vanilla, **no KaberiRed**: does it reach the desktop on the firmware
    framebuffer? Note the boot-args and SMBIOS used.
