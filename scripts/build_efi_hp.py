@@ -15,7 +15,7 @@ Build an OpenCore EFI for the HP Notebook (board 8133, A4-5000 Kabini) test lapt
     unpacked/AirportItlwm-*-Monterey/       OpenIntelWireless/itlwm AirportItlwm_*_stable_Monterey.kext.zip, extracted
     unpacked/KaberiRed/                     (--kaberired) KaberiRed.kext from CI (KaberiRed-*-Debug.zip)
     downloads/AMD_Vanilla-patches.plist     github.com/AMD-OSX/AMD_Vanilla patches.plist
-    downloads/HfsPlus.efi                   github.com/acidanthera/OcBinaryData Drivers/HfsPlus.efi
+    downloads/HfsPlusLegacy.efi             github.com/acidanthera/OcBinaryData Drivers/HfsPlusLegacy.efi (no RDRAND)
     acpi/SSDT-EC-USBX-LAPTOP.aml            compiled from docs/opencore/SSDT-EC-USBX-LAPTOP.dsl (iasl)
     recovery/com.apple.recovery.boot/       Monterey Recovery from OpenCore's macrecovery.py
                                             (-b Mac-FFE5EF870D7BA81A -m 00000000000000000 download)
@@ -64,8 +64,10 @@ KEXTS = [  # (bundle path inside its release folder, executable, comment)
 # --kaberired: the KaberiRed kext from CI (KaberiRed-*-Debug.zip), unpacked to unpacked/KaberiRed/.
 KABERIRED_KEXT = ("KaberiRed/KaberiRed.kext", "KaberiRed", "KaberiRed (Lilu plugin, iGPU)")
 
-# HfsPlus.efi (Apple's HFS+ driver) instead of OpenCore's much slower OpenHfsPlus.efi; it isn't in OpenCore's release.
-DRIVERS = ["OpenRuntime.efi", "HfsPlus.efi", "ResetNvramEntry.efi"]
+# Apple's HFS+ driver instead of OpenCore's much slower OpenHfsPlus.efi; it isn't in OpenCore's release. The *Legacy*
+# build: HfsPlus.efi executes RDRAND, which Jaguar doesn't have, and the firmware hung loading it (2026-10-17: the
+# black screen before the picker; the --diag log stopped at "Driver HfsPlus.efi at 1 is being loaded").
+DRIVERS = ["OpenRuntime.efi", "HfsPlusLegacy.efi", "ResetNvramEntry.efi"]
 
 SSDTS = {  # compiled from docs/opencore/<name>.dsl into <work dir>/acpi/
     "SSDT-EC-USBX-LAPTOP.aml": "Fake EC + USBX (laptop, real EC0 under LPC0)",
@@ -219,8 +221,8 @@ def main():
         # Target 0x41: write opencore-<date>.txt to the root of the EFI partition; errors, warnings and info.
         cfg["Misc"]["Debug"].update(Target=0x41, DisplayLevel=0x80000042)
     if "--diag" in opts:
-        # Target 0x43: log on, on screen, to a file. DisplayDelay: 0.2 s per line, so a hang's last lines can be read.
-        cfg["Misc"]["Debug"].update(Target=0x43, DisplayLevel=0x80000042, DisplayDelay=200000)
+        # Target 0x43: log on, on screen, to a file (a hang leaves its last lines on screen).
+        cfg["Misc"]["Debug"].update(Target=0x43, DisplayLevel=0x80000042, DisplayDelay=0)
     # SecureBootModel Default: AirportItlwm needs IO80211Family loaded, which Apple Secure Boot provides on Big Sur+
     # (with it Disabled, IO80211Family would have to be force-loaded).
     cfg["Misc"]["Security"].update(AllowSetDefault=True, BlacklistAppleUpdate=True, ExposeSensitiveData=6,
