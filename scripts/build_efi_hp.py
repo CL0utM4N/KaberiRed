@@ -4,7 +4,7 @@ Build an OpenCore EFI for the HP Notebook (board 8133, A4-5000 Kabini) test lapt
 
     python scripts/build_efi_hp.py <work dir> [--kaberired] [--spoof [--accel]] [--args="..."] [--oclog]
                                              [--debugoc] [--diag] [--nowifi] [--xhciprobe] [--fchxhcifix] [--nousb2]
-                                             [--minimal] [--noecgpe]
+                                             [--minimal] [--noecgpe] [--novarwrite]
 
     --debugoc   OpenCore's DEBUG binaries (unpacked/OpenCore-<ver>-DEBUG/) for a verbose log
     --diag      print OpenCore's log on screen through the firmware's own text console (TextRenderer
@@ -195,6 +195,12 @@ def main():
         ProvideCustomSlide=True, RebuildAppleMemoryMap=False, SetupVirtualMap=True, SyncRuntimePermissions=False,
         ProtectUefiServices=False, ResizeAppleGpuBars=-1, AllowRelocationBlock=False, DiscardHibernateMap=False,
         ForceExitBootServices=False, ProvideMaxSlide=0)
+    if "--novarwrite" in opts:
+        # Test (2026-10-17): the platform probe showed healthy clocks and no pending interrupts up to ~250 ms before
+        # each freeze, then an abrupt total stop, a few seconds into every boot whatever was loaded: the CPU inside
+        # firmware code that never returns. macOS writes NVRAM through UEFI runtime services (interrupts off); on this
+        # Insyde firmware the variable service is SMM code. OpenRuntime then refuses macOS's writes instead.
+        cfg["Booter"]["Quirks"]["DisableVariableWrite"] = True
 
     # --- DeviceProperties ---------------------------------------------------------------------------
     # Keep Apple's AMDSupport (which matches any display-class 1002:xxxx device) off the unsupported iGPU while

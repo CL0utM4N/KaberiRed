@@ -71,6 +71,15 @@ Monterey.
   arrives over time and swamps the CPU. **The battery is dead**, and every earlier boot logged SMCBatteryManager's
   "battery 0 has no remaining capacity". Lead: an EC event (SCI/GPE 3) flood, e.g. `_Q09` (battery status). Next
   test: `--minimal --noecgpe` (Lilu, VirtualSMC, ECEnabler; EC0's `_GPE` renamed so macOS ignores EC events).
+- **`--noecgpe`:** froze even earlier (after `AMFILoadTrustedKeysFromNVRam`, ~3.6 s): not EC events. All freezes so
+  far fall ~3-4 s into the kernel, at whatever line is current.
+- **Platform probe (KaberiRed `-krplatprobe`, every 250 ms):** three lines before the freeze, all healthy: TSC and ACPI
+  PM timer agree (267/260/255 ms per 250 ms window; HPET disabled), no vector pending or in service at the local
+  APIC, APIC timer vector 0xDD one-shot 10 ms, PM1 `0010/0120`, GPE0 normal (EC event pending once, then clear), I/O
+  APIC pins 9 (SCI) and 19 level-triggered without remote IRR. So no storm and no stuck event: the machine stops
+  abruptly, interrupts dead, no panic, i.e. the CPU is in firmware code that doesn't return. NVRAM (`nvram0.bin`)
+  holds no variable written by macOS. Next test: `--novarwrite` (OpenRuntime's `DisableVariableWrite`, refusing
+  macOS's NVRAM writes, which go through the Insyde firmware's SMM variable service).
 
 1. Monterey 12.7.6 with OpenCore and AMD_Vanilla, **no KaberiRed**: does it reach the desktop on the firmware
    framebuffer? Note the boot-args and SMBIOS used.
