@@ -52,6 +52,14 @@ Monterey.
   --diag` (log on screen through the firmware's text console) it stopped at `Driver HfsPlus.efi at 1 is being
   loaded`: Apple's `HfsPlus.efi` executes **RDRAND, which Jaguar lacks**. `HfsPlusLegacy.efi` (no RDRAND) fixed it:
   the picker appears and Recovery boots.
+- **Recovery, 4 cores:** stops at `dlil_init: Waiting for all the create dlil kernel threads…`: threads queued on the
+  other cores never run. Not yet understood (the MADT is normal: LAPIC IDs 0-3, two I/O APICs). `cpus=1` gets past it.
+- **Recovery, 1 core (with and without AirportItlwm):** the screen stops right after `rooting via boot-uuid`. With
+  XHCIProbe (observe-only) it printed its 2 s report once and never again, so the kernel itself stopped, not just the
+  root mount: the stick was seen (xHCI port 4, high speed, link in U0), but the 1 ms sampler got only 149 of ~2000
+  samples in its first 2 s, as if the CPU was nearly saturated by interrupts. FCHXHCIFix (matched to 7814) never
+  started. Hypothesis: an interrupt storm from the FCH's EHCI/OHCI controllers (shared legacy IRQs 17/18; Linux applies
+  AMD-specific EHCI quirks to them). Next test: `--nousb2` keeps Apple's EHCI/OHCI drivers off them.
 
 1. Monterey 12.7.6 with OpenCore and AMD_Vanilla, **no KaberiRed**: does it reach the desktop on the firmware
    framebuffer? Note the boot-args and SMBIOS used.

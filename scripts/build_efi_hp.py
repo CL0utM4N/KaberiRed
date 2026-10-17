@@ -3,7 +3,7 @@
 Build an OpenCore EFI for the HP Notebook (board 8133, A4-5000 Kabini) test laptop, macOS Monterey 12.
 
     python scripts/build_efi_hp.py <work dir> [--kaberired] [--spoof [--accel]] [--args="..."] [--oclog]
-                                             [--debugoc] [--diag] [--nowifi] [--xhciprobe] [--fchxhcifix]
+                                             [--debugoc] [--diag] [--nowifi] [--xhciprobe] [--fchxhcifix] [--nousb2]
 
     --debugoc   OpenCore's DEBUG binaries (unpacked/OpenCore-<ver>-DEBUG/) for a verbose log
     --diag      print OpenCore's log on screen through the firmware's own text console (TextRenderer
@@ -195,6 +195,13 @@ def main():
         # Phase 1 spoof test: let Apple's GCN 2 drivers attach and record where they stop.
         igpu = {"device-id": SPOOF_DEVICE_ID}
     cfg["DeviceProperties"]["Add"] = {"PciRoot(0x0)/Pci(0x1,0x0)": igpu}
+    if "--nousb2" in opts:
+        # Test (2026-10-17): with one core the kernel stopped ~2 s after USB came up, XHCIProbe's 1 ms sampler getting
+        # only ~150 of ~2000 samples first, as if an interrupt storm took the CPU. Keep Apple's EHCI/OHCI drivers off
+        # the FCH's USB 2.0/1.1 controllers (they share legacy IRQs; only the webcam and Bluetooth are on them; the
+        # external ports are on the xHCI): IOPCIClassMatch compares the class-code property.
+        for dev in ("Pci(0x12,0x0)", "Pci(0x12,0x2)", "Pci(0x13,0x0)", "Pci(0x13,0x2)"):
+            cfg["DeviceProperties"]["Add"][f"PciRoot(0x0)/{dev}"] = {"class-code": bytes.fromhex("FFFFFFFF")}
     cfg["DeviceProperties"]["Delete"] = {}
 
     # --- Kernel -----------------------------------------------------------------------------------
