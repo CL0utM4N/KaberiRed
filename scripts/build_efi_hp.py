@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""
+Build an OpenCore EFI for the HP Notebook (board 8133, A4-5000 Kabini) test laptop, macOS Monterey 12.
+
+    python scripts/build_efi_hp.py <work dir> [--kaberired] [--spoof [--accel]] [--args="..."] [--oclog]
+
+<work dir> must contain:
+    unpacked/OpenCore-<ver>-RELEASE/        OpenCorePkg release zip, extracted
+    unpacked/<Kext>-<ver>-RELEASE/          Lilu, VirtualSMC, ECEnabler, VoodooPS2Controller, RestrictEvents
+    unpacked/AirportItlwm-*-Monterey/       OpenIntelWireless/itlwm AirportItlwm_*_stable_Monterey.kext.zip, extracted
+    unpacked/KaberiRed/                     (--kaberired) KaberiRed.kext from CI (KaberiRed-*-Debug.zip)
+    downloads/AMD_Vanilla-patches.plist     github.com/AMD-OSX/AMD_Vanilla patches.plist
+    downloads/HfsPlus.efi                   github.com/acidanthera/OcBinaryData Drivers/HfsPlus.efi
+    acpi/SSDT-EC-USBX-LAPTOP.aml            compiled from docs/opencore/SSDT-EC-USBX-LAPTOP.dsl (iasl)
+    recovery/com.apple.recovery.boot/       Monterey Recovery from OpenCore's macrecovery.py
+                                            (-b Mac-FFE5EF870D7BA81A -m 00000000000000000 download)
+and receives:
+    usb/                                    copy its contents (EFI + com.apple.recovery.boot) to a FAT32 USB stick
+
+SMBIOS serials are generated with OpenCore's macserial on the first build and kept in <work dir>/smbios.plist, so
+rebuilding keeps the same identity. They never go into the repository.
+
+Choices follow the Dortania OpenCore Install Guide for AMD family 15h/16h and CarrizoRed's laptop EFI, adjusted from
+this machine's own data (docs/TEST_MACHINE.md): Insyde UEFI 2.3.1 without a Memory Attributes Table, no Above-4G
+option, 4 CPU cores, real EC named EC0 under \\_SB.PCI0.LPC0, PS/2 keyboard and Elantech trackpad (ETD0706), Intel
+Wireless 7260 (AirportItlwm), Realtek RTL8101E Ethernet (no maintained binary driver: Recovery uses Wi-Fi). The
+firmware already enables the HPET under macOS (OSTB defaults to 0x61), so unlike CarrizoRed's laptop no _OSI patch.
+"""
+
+import os
+import plistlib
+import shutil
+import subprocess
+import sys
+import uuid
+from pathlib import Path
+
+CORE_COUNT = 4                      # A4-5000: 4 Jaguar cores
+SMBIOS_MODEL = "iMac19,1"           # Monterey-supported, AMD (Polaris) graphics. Not MacPro6,1/7,1 or iMacPro1,1:
+# AppleIntelMCEReporter matches those board-ids and panics on AMD CPUs (CarrizoRed, 2026-10-09).
+BOOT_ARGS = "-v keepsyms=1 debug=0x100 npci=0x3000 msgbuf=1048576"
+# npci=0x3000: AMD systems without an "Above 4G decoding" option. msgbuf: 1 MB kernel log, so boot messages survive.
+
+KEXTS = [  # (bundle path inside its release folder, executable, comment)
+    ("Lilu-*/Lilu.kext", "Lilu", "Patch engine"),
+    ("VirtualSMC-*/Kexts/VirtualSMC.kext", "VirtualSMC", "SMC emulator"),
+    ("VirtualSMC-*/Kexts/SMCBatteryManager.kext", "SMCBatteryManager", "Battery status"),
+    ("ECEnabler-*/ECEnabler.kext", "ECEnabler", "Read multi-byte EC fields (battery)"),
+    ("VoodooPS2Controller-*/VoodooPS2Controller.kext", "VoodooPS2Controller", "PS/2 controller"),
+    ("VoodooPS2Controller-*/VoodooPS2Controller.kext/Contents/PlugIns/VoodooInput.kext", "VoodooInput",
+     "Trackpad input (Magic Trackpad emulation)"),
+    ("VoodooPS2Controller-*/VoodooPS2Controller.kext/Contents/PlugIns/VoodooPS2Keyboard.kext", "VoodooPS2Keyboard",
+     "PS/2 keyboard"),
+    ("VoodooPS2Controller-*/VoodooPS2Controller.kext/Contents/PlugIns/VoodooPS2Trackpad.kext", "VoodooPS2Trackpad",
+     "Elantech PS/2 trackpad (ETD0706)"),
+    ("RestrictEvents-*/RestrictEvents.kext", "RestrictEvents", "CPU name, misc. fixes"),
+    ("AirportItlwm-*-Monterey/AirportItlwm.kext", "AirportItlwm", "Intel Wireless 7260 (Wi-Fi, also in Recovery)"),
+]
+# --kaberired: the KaberiRed kext from CI (KaberiRed-*-Debug.zip), unpacked to unpacked/KaberiRed/.
+KABERIRED_KEXT = ("KaberiRed/KaberiRed.kext", "KaberiRed", "KaberiRed (Lilu plugin, iGPU)")
+
+# HfsPlus.efi (Apple's HFS+ driver) instead of OpenCore's much slower OpenHfsPlus.efi; it isn't in OpenCore's release.
+DRIVERS = ["OpenRuntime.efi", "HfsPlus.efi", "ResetNvramEntry.efi"]
+
+SSDTS = {  # compiled from docs/opencore/<name>.dsl into <work dir>/acpi/
+    "SSDT-EC-USBX-LAPTOP.aml": "Fake EC + USBX (laptop, real EC0 under LPC0)",
+}
+
+# Bonaire XT: in the IOPCIMatch lists of AMD8000Controller, AMDRadeonX4000 (AMDBonaireGraphicsAccelerator) and
+# AMDRadeonX4000HWServices (CI). CAIL still reads the real device ID (0x9832) from config space (docs/APPLE_KEXTS.md).
+SPOOF_DEVICE_ID = bytes.fromhex("5C660000")
+
+
+def die(msg):
+    sys.exit(f"error: {msg}")
+
+
+def one(base, pattern):
+    hits = sorted(base.glob(pattern))
+    if len(hits) != 1:
+        die(f"expected exactly one match for {pattern} in {base}, found {len(hits)}")
+    return hits[0]
+
+
+def amd_vanilla_patches(path):
+    patches = plistlib.load(open(path, "rb"))["Kernel"]["Patch"]
+    cores = 0
+    for p in patches:
+        if "cpuid_cores_per_package" in p.get("Comment", ""):
+            rep = bytearray(p["Replace"])
+            rep[1] = CORE_COUNT
+            p["Replace"] = bytes(rep)
+            cores += 1
+    if cores != 4:
+        die(f"expected 4 core-count patches in AMD_Vanilla, found {cores}")
+    return patches
+
+
+def smbios(work, oc):
+    store = work / "smbios.plist"
+    if store.exists():
+        return plistlib.load(open(store, "rb"))
+    macserial = oc / "Utilities" / "macserial" / ("macserial.exe" if os.name == "nt" else "macserial")
+    out = subprocess.run([str(macserial), "-m", SMBIOS_MODEL, "-g", "-n", "1"], capture_output=True, text=True,
+                         check=True).stdout.strip()
+    serial, mlb = [s.strip() for s in out.split("|")]
+    data = {"SystemProductName": SMBIOS_MODEL, "SystemSerialNumber": serial, "MLB": mlb,
+            "SystemUUID": str(uuid.uuid4()).upper(), "ROM": os.urandom(6)}
+    plistlib.dump(data, open(store, "wb"))
+    return data
+
+
+def main():
+    opts = sys.argv[1:]
+    args = [a for a in opts if not a.startswith("--")]
+    with_kr = "--kaberired" in opts
+    with_spoof = "--spoof" in opts
+    if with_spoof and not with_kr:
+        die("--spoof needs --kaberired")
+    if len(args) != 1:
+        sys.exit(__doc__)
+    work = Path(args[0]).resolve()
+    unpacked = work / "unpacked"
+    oc = one(unpacked, "OpenCore-*-RELEASE")
+    ssdts = [work / "acpi" / n for n in SSDTS]
+    for ssdt in ssdts:
+        if not ssdt.exists():
+            die(f"{ssdt} missing: compile docs/opencore/{ssdt.stem}.dsl with iasl first")
+    recovery = work / "recovery" / "com.apple.recovery.boot"
+    if not (recovery / "BaseSystem.dmg").exists():
+        die(f"{recovery}/BaseSystem.dmg missing: run macrecovery.py (see the docstring)")
+
+    usb = work / "usb"
+    if usb.exists():
+        shutil.rmtree(usb)
+    efi = usb / "EFI"
+    shutil.copytree(oc / "X64" / "EFI" / "BOOT", efi / "BOOT")
+    ocdir = efi / "OC"
+    for sub in ("ACPI", "Drivers", "Kexts", "Tools"):
+        (ocdir / sub).mkdir(parents=True)
+    shutil.copy2(oc / "X64" / "EFI" / "OC" / "OpenCore.efi", ocdir)
+    shutil.copytree(oc / "X64" / "EFI" / "OC" / "Resources", ocdir / "Resources")
+    for ssdt in ssdts:
+        shutil.copy2(ssdt, ocdir / "ACPI")
+    for d in DRIVERS:
+        src = oc / "X64" / "EFI" / "OC" / "Drivers" / d
+        if not src.exists():
+            src = work / "downloads" / d
+            if not src.exists():
+                die(f"{d} missing: put it in {work / 'downloads'}")
+        shutil.copy2(src, ocdir / "Drivers")
+    shutil.copy2(oc / "X64" / "EFI" / "OC" / "Tools" / "OpenShell.efi", ocdir / "Tools")
+    shutil.copytree(recovery, usb / "com.apple.recovery.boot")
+
+    cfg = plistlib.load(open(oc / "Docs" / "Sample.plist", "rb"))
+
+    # --- ACPI -------------------------------------------------------------------------------------
+    cfg["ACPI"]["Add"] = [{"Comment": SSDTS[n], "Enabled": True, "Path": n} for n in SSDTS]
+    cfg["ACPI"]["Delete"] = []
+    cfg["ACPI"]["Patch"] = []
+    cfg["ACPI"]["Quirks"].update(FadtEnableReset=False, NormalizeHeaders=False, RebaseRegions=False,
+                                 ResetHwSig=False, ResetLogoStatus=True, SyncTableIds=False)
+
+    # --- Booter: AMD, UEFI 2.3.1 firmware without a Memory Attributes Table ----------------------
+    cfg["Booter"]["MmioWhitelist"] = []
+    cfg["Booter"]["Patch"] = []
+    cfg["Booter"]["Quirks"].update(
+        AvoidRuntimeDefrag=True, DevirtualiseMmio=False, EnableSafeModeSlide=True, EnableWriteUnprotector=True,
+        ProvideCustomSlide=True, RebuildAppleMemoryMap=False, SetupVirtualMap=True, SyncRuntimePermissions=False,
+        ProtectUefiServices=False, ResizeAppleGpuBars=-1, AllowRelocationBlock=False, DiscardHibernateMap=False,
+        ForceExitBootServices=False, ProvideMaxSlide=0)
+
+    # --- DeviceProperties ---------------------------------------------------------------------------
+    # Keep Apple's AMDSupport (which matches any display-class 1002:xxxx device) off the unsupported iGPU while
+    # installing: IOPCIMatch compares the vendor-id *property*. The class code stays, so the boot framebuffer keeps
+    # working. KaberiRed finds the iGPU by config space, so it doesn't mind.
+    igpu = {"vendor-id": bytes.fromhex("FFFF0000")}
+    if with_spoof:
+        # Phase 1 spoof test: let Apple's GCN 2 drivers attach and record where they stop.
+        igpu = {"device-id": SPOOF_DEVICE_ID}
+    cfg["DeviceProperties"]["Add"] = {"PciRoot(0x0)/Pci(0x1,0x0)": igpu}
+    cfg["DeviceProperties"]["Delete"] = {}
+
+    # --- Kernel -----------------------------------------------------------------------------------
+    adds = []
+    for pattern, exe, comment in KEXTS + ([KABERIRED_KEXT] if with_kr else []):
+        src = one(unpacked, pattern)
+        if "/PlugIns/" not in pattern:
+            shutil.copytree(src, ocdir / "Kexts" / src.name)
+        rel = pattern.split("/", 1)[1]
+        if rel.startswith("Kexts/"):
+            rel = rel[len("Kexts/"):]
+        adds.append({"Arch": "Any", "BundlePath": rel, "Comment": comment, "Enabled": True,
+                     "ExecutablePath": f"Contents/MacOS/{exe}", "MaxKernel": "", "MinKernel": "",
+                     "PlistPath": "Contents/Info.plist"})
+    cfg["Kernel"]["Add"] = adds
+    cfg["Kernel"]["Block"] = []
+    cfg["Kernel"]["Force"] = []
+    cfg["Kernel"]["Patch"] = amd_vanilla_patches(work / "downloads" / "AMD_Vanilla-patches.plist")
+    cfg["Kernel"]["Emulate"].update(DummyPowerManagement=True, Cpuid1Data=b"", Cpuid1Mask=b"")
+    cfg["Kernel"]["Quirks"].update(
+        AppleCpuPmCfgLock=False, AppleXcpmCfgLock=False, AppleXcpmExtraMsrs=False, DisableIoMapper=False,
+        DisableLinkeditJettison=True, LapicKernelPanic=False, PanicNoKextDump=True, PowerTimeoutKernelPanic=True,
+        ProvideCurrentCpuInfo=True, XhciPortLimit=False, ThirdPartyDrives=False)
+    cfg["Kernel"]["Scheme"].update(FuzzyMatch=True, KernelArch="x86_64", KernelCache="Auto")
+
+    # --- Misc -------------------------------------------------------------------------------------
+    cfg["Misc"]["Boot"].update(HideAuxiliary=False, PickerMode="Builtin", ShowPicker=True, Timeout=5,
+                               PollAppleHotKeys=True)
+    cfg["Misc"]["Debug"].update(AppleDebug=True, ApplePanic=True, DisableWatchDog=True, Target=3)
+    if "--oclog" in opts:
+        # Target 0x41: write opencore-<date>.txt to the root of the EFI partition; errors, warnings and info.
+        cfg["Misc"]["Debug"].update(Target=0x41, DisplayLevel=0x80000042)
+    # SecureBootModel Default: AirportItlwm needs IO80211Family loaded, which Apple Secure Boot provides on Big Sur+
+    # (with it Disabled, IO80211Family would have to be force-loaded).
+    cfg["Misc"]["Security"].update(AllowSetDefault=True, BlacklistAppleUpdate=True, ExposeSensitiveData=6,
+                                   ScanPolicy=0, SecureBootModel="Default", Vault="Optional")
+    cfg["Misc"]["Entries"] = []
+    cfg["Misc"]["Tools"] = [{"Arguments": "", "Auxiliary": True, "Comment": "UEFI shell (dmpstore)", "Enabled": True,
+                             "Flavour": "OpenShell:UEFIShell:Shell", "FullNvramAccess": False,
+                             "Name": "UEFI Shell", "Path": "OpenShell.efi", "RealPath": False,
+                             "TextMode": False}]
+
+    # --- NVRAM ------------------------------------------------------------------------------------
+    boot = cfg["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]
+    boot["boot-args"] = BOOT_ARGS
+    if with_kr:
+        # KaberiRed's first runs: the report at 60 s. Spoof tests keep the accelerator off unless --accel.
+        boot["boot-args"] += " -krdbg krpanicat=60"
+        if with_spoof and "--accel" not in opts:
+            boot["boot-args"] += " -krnoaccel"
+    for arg in opts:
+        if arg.startswith("--args="):
+            boot["boot-args"] += " " + arg[len("--args="):]
+    boot["csr-active-config"] = bytes(4)
+    boot["prev-lang:kbd"] = "en-US:0"
+    cfg["NVRAM"]["WriteFlash"] = True
+
+    # --- PlatformInfo -----------------------------------------------------------------------------
+    cfg["PlatformInfo"]["Generic"].update(smbios(work, oc))
+    cfg["PlatformInfo"]["UpdateSMBIOSMode"] = "Create"
+
+    # --- UEFI -------------------------------------------------------------------------------------
+    cfg["UEFI"]["Drivers"] = [{"Arguments": "", "Comment": "", "Enabled": True, "HideVerbose": False,
+                               "LoadEarly": False, "Path": d} for d in DRIVERS]
+    cfg["UEFI"]["Output"].update(ProvideConsoleGop=True, Resolution="Max")
+    cfg["UEFI"]["Quirks"].update(ReleaseUsbOwnership=True, RequestBootVarRouting=True, UnblockFsConnect=False)
+
+    plistlib.dump(cfg, open(ocdir / "config.plist", "wb"), sort_keys=False)
+    print(f"EFI written to {usb}")
+    print(f"boot-args: {boot['boot-args']}")
+    print(f"SMBIOS {SMBIOS_MODEL}, serials stored in {work / 'smbios.plist'}")
+
+
+if __name__ == "__main__":
+    main()

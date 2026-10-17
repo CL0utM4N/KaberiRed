@@ -37,6 +37,16 @@ PC into `Desktop\KaberiRed-RE\`.
 
 ## First macOS boots
 
+The EFI comes from `scripts/build_efi_hp.py` (OpenCore 1.0.8, AMD_Vanilla with 4 cores, iMac19,1, SSDT-EC-USBX,
+VoodooPS2 with the Elantech trackpad, AirportItlwm for the Intel 7260, Monterey Recovery from `macrecovery.py`).
+
+**USB stick:** format it FAT32 (GPT or MBR) and copy the contents of `KaberiRed-RE/efi-hp/usb/` (the `EFI` and
+`com.apple.recovery.boot` folders) to its root. **BIOS (F10):** Secure Boot off, legacy/CSM boot off if offered,
+USB boot on. Boot it with F9 (boot menu), **from a USB 2.0 port**: those are on the EHCI controllers, which macOS
+supports natively; the FCH xHCI (1022:7814) is untested under macOS. In OpenCore's picker choose the Recovery entry;
+join Wi-Fi in Recovery (no Ethernet driver), erase the internal disk as APFS in Disk Utility, then Reinstall macOS
+Monterey.
+
 1. Monterey 12.7.6 with OpenCore and AMD_Vanilla, **no KaberiRed**: does it reach the desktop on the firmware
    framebuffer? Note the boot-args and SMBIOS used.
 2. KaberiRed (debug) + Lilu (debug), **no spoof**, boot-args `-krdbg krpanicat=60 debug=0x100 keepsyms=1`: at 60 s

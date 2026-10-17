@@ -50,6 +50,7 @@ make DEBUG=1             # build/Debug/KaberiRed.kext
 | `scripts/macho.py` | Lists symbols of, and disassembles functions in, Apple binaries (`pip install capstone`) |
 | `scripts/match_functions.py` | Names functions in a stripped binary (Monterey's HWLibs) from a symbolised build of the same code |
 | `scripts/dmpstore.py` | Decodes an NVRAM dump: KaberiRed's `KR-progress` and the panic report in `AAPL,PanicInfo` |
+| `scripts/build_efi_hp.py` | Builds the OpenCore EFI (plus Monterey Recovery) for the HP A4-5000 test laptop |
 | `scripts/collect_linux_info.sh` | Collects reference data (VBIOS, registers, ACPI) on the test machine under Linux |
 
 Apple's binaries are never committed: keep them outside the repository (we use `Desktop/KaberiRed-RE/`).
