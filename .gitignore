@@ -1,0 +1,6 @@
+/build/
+/Lilu.kext/
+/MacKernelSDK/
+.DS_Store
+__pycache__/
+a.out
