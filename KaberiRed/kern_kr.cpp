@@ -187,8 +187,10 @@ static const char *pathFramebuffer[] {"/System/Library/Extensions/AMDFramebuffer
 static const char *pathX4000[] {"/System/Library/Extensions/AMDRadeonX4000.kext/Contents/MacOS/AMDRadeonX4000"};
 static const char *pathHWServices[] {
 	"/System/Library/Extensions/AMDRadeonX4000HWServices.kext/Contents/MacOS/AMDRadeonX4000HWServices"};
+// AMDRadeonHWServicesCI::getMatchProperty picks Load4050 for every CI GPU (its only project name, ATY,Exmoor, maps to
+// the same): the CI build of CAIL is AMDRadeonX4050HWLibs, not X4000HWLibs as on Polaris.
 static const char *pathHWLibs[] {"/System/Library/Extensions/AMDRadeonX4000HWServices.kext/Contents/PlugIns/"
-								 "AMDRadeonX4000HWLibs.kext/Contents/MacOS/AMDRadeonX4000HWLibs"};
+								 "AMDRadeonX4050HWLibs.kext/Contents/MacOS/AMDRadeonX4050HWLibs"};
 
 enum KextIndex : size_t {
 	KextController,
@@ -216,7 +218,7 @@ static KernelPatcher::KextInfo kexts[KextCount] {
 		KernelPatcher::KextInfo::Unloaded},
 	[KextHWServices] = {"com.apple.kext.AMDRadeonX4000HWServices", pathHWServices, arrsize(pathHWServices), {}, {},
 		KernelPatcher::KextInfo::Unloaded},
-	[KextHWLibs] = {"com.apple.kext.AMDRadeonX4000HWLibs", pathHWLibs, arrsize(pathHWLibs), {}, {},
+	[KextHWLibs] = {"com.apple.kext.AMDRadeonX4050HWLibs", pathHWLibs, arrsize(pathHWLibs), {}, {},
 		KernelPatcher::KextInfo::Unloaded},
 };
 

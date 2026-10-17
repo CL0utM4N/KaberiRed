@@ -100,11 +100,12 @@ images (see CarrizoRed `docs/OLDER_APUS.md`).
 ## Display (dce_v8_0.c, radeon cik.c)
 
 - **CRTCs** (`dce_v8_0_early_init`): Bonaire/Hawaii 6, Kaveri 4, Kabini/Mullins 2. Register blocks:
-  `CRTC0_REGISTER_OFFSET` 0, CRTC1 `+0x300`, CRTC2-5 `0x2600 + 0x300 × (n − 2)` (`cikd.h`). Apple's controller will
-  create 6 pipes' worth of objects for a Bonaire, as AMD9500Controller did for Polaris (CarrizoRed patched
-  `getDisplayLimit` / `getNumLineBuffers`); find the AMD8000 equivalents.
+  `CRTC0_REGISTER_OFFSET` 0, CRTC1 `+0x300`, CRTC2-5 `0x2600 + 0x300 × (n − 2)` (`cikd.h`). Apple's controller
+  creates 6 pipes' worth of objects for a Bonaire (`CISharedController::getDisplayLimit` / `getNumLineBuffers` = 6) and
+  `AMD8000Controller::hwMiscSetup` loops over 6 pipes on its own; see [APPLE_KEXTS.md](APPLE_KEXTS.md).
 - **PLLs** (`dce_v8_0_pick_pll`): "KB/ML has PPLL1 and PPLL2"; CI and KV have PPLL0, PPLL1 and PPLL2. DP can use the
-  external clock (`dp_extclk`) and skip the PPLL. Apple's PLL assigner must not hand out PPLL0 on Kabini.
+  external clock (`dp_extclk`) and skip the PPLL. Apple's CI PLL assigner is created with 2 PLLs whose indexes 0/1 are
+  ATOM PPLL1/PPLL2, so it should never hand out PPLL0.
 - **DIGs / HPD** (`dce_v8_0_sw_init`): Bonaire/Hawaii 6/6, Kaveri 7/6, Kabini/Mullins 6/6 (marked "?" in Linux).
 - **Line buffer** (`dce8_line_buffer_adjust`): `LB_MEMORY_SIZE` 0x6B0 everywhere; DMIF buffers allocated per pipe 2,
   or 4 on dGPUs for modes 2560 pixels wide and above (2 on IGPs). Kabini's eDP panel is 1366×768, so first light is

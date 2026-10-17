@@ -7,12 +7,15 @@ a counter in the report proves the patch in question landed, and one test EFI is
 
 - [x] Repository skeleton from CarrizoRed: Makefile, Info.plist template, Lilu entry, CI, black box
 - [x] Monterey's AMD binaries on Windows without a KDK (`scripts/fetch_macos.py`, Apple's installer, 12.7.6 21H1320)
-- [ ] Inventory of `AMD8000Controller`, `AMDSupport`, `AMDRadeonX4000`, HWServices/HWLibs: GCN 2 classes, device-ID
-      tables, CAIL Kalindi/Spectre paths ([APPLE_KEXTS.md](APPLE_KEXTS.md))
+- [x] Inventory of `AMD8000Controller`, `AMDSupport`, `AMDRadeonX4000`, HWServices/HWLibs: GCN 2 classes, device-ID
+      tables, CAIL Kalindi/Spectre rows and microcode ([APPLE_KEXTS.md](APPLE_KEXTS.md))
 - [x] Linux differences Bonaire vs Kabini/Kaveri ([KABINI_VS_BONAIRE.md](KABINI_VS_BONAIRE.md))
-- [ ] Spoof target chosen (a Bonaire ID that `AMD8000Controller` and `AMDRadeonX4000` both match)
-- [ ] Does Monterey's Metal driver have a GFX7 code generator for these IDs? (dyld shared cache, `x86_64` not
-      `x86_64h`: Jaguar has no AVX2)
+- [x] Spoof target: `0x665C` (provisional; any of the eight Bonaire IDs matches all three kexts)
+- [x] Metal has a GFX7 code generator: `libSC` gives both CI and KV families the Bonaire back end. Its code has the
+      16-bank interpolation hazard (33 of the Metal driver's 435 built-in GFX6/7 programs), so Kabini/Mullins need the
+      interpolation fixer; Kaveri doesn't
+- [ ] CAIL's Kalindi code paths in the stripped `AMDRadeonX4050HWLibs`: function table, golden settings, whether
+      it loads the microcode itself (expected on GCN 2)
 - [ ] Reference data from the HP A4-5000 ([TEST_MACHINE.md](TEST_MACHINE.md)): Linux `lspci`, VBIOS, register dumps
 
 ## Phase 1: observe
@@ -24,7 +27,8 @@ a counter in the report proves the patch in question landed, and one test EFI is
 ## Phase 2: display (`AMD8000Controller` + `AMDSupport`)
 
 - [ ] Controller accepts the APU: ASIC caps, family/revision checks, VBIOS from VFCT, VRAM from `CONFIG_MEMSIZE`
-- [ ] DCE 8.3 limits: 2 CRTCs, PPLL1/PPLL2 only, line buffers, eDP link
+- [ ] DCE 8.3 limits: `getDisplayLimit`/`getNumLineBuffers` 6 → 2, `hwMiscSetup`'s hard-coded 6-pipe loop, eDP link
+      (Apple's PLL assigner already uses 2 PLLs, which map to PPLL1/PPLL2)
 - [ ] **Milestone:** native resolution on the internal panel, brightness, then HDMI/VGA
 
 ## Phase 3: acceleration (`AMDRadeonX4000`)

@@ -414,6 +414,16 @@ class Chunk:
                 o = data.find(b"YAA1", o + 1)
         return None
 
+    def entries_in_first_block(self):
+        size, n, pos = len(self.block(0)), 0, 0
+        while pos < size and n < 64:
+            h = self.header_at(pos)
+            if not h:
+                break
+            n += 1
+            pos += h[0] + sum(s for _, s in h[2])
+        return n
+
     def entries_from(self, pos):
         """Yield (position, fields, blobs, data position) of consecutive entries."""
         while pos < self.length:
@@ -453,8 +463,12 @@ def extract(zip_, prefixes, outdir, cache, expected):
             nxt = next((firsts[n][1] for n in chunks[i + 1:] if n in firsts), None)
             if nxt and key(nxt) > key(first) and key(nxt) <= key(prefix):
                 continue
-            # Binary search: the last block whose first entry sorts before the prefix.
+            # A chunk of big files (few entries in its first block) is cheapest to walk entry by entry from the
+            # start: one block per header, data skipped. Otherwise binary search: the last block whose first entry
+            # sorts before the prefix.
             lo, hi, start = 0, c.count - 1, 0
+            if c.entries_in_first_block() < 8:
+                hi = -1
             while lo <= hi:
                 mid = (lo + hi) // 2
                 f = c.first_header(mid)
@@ -476,8 +490,12 @@ def extract(zip_, prefixes, outdir, cache, expected):
                 write_entry(c, fields, blobs, data_pos, outdir)
             print(f"  {name}: {prefix}: {sum(1 for p in found if p.startswith(prefix))} so far "
                   f"({fetched / 1e6:.0f} MB fetched)")
-    missing = [p for p in expected if p not in found]
-    print(f"{len(found)} entries extracted; {len(missing)} files listed in fixup.manifest not found")
+    # Files with an HLC (hard-link cluster) field share their content with another path and may be stored under
+    # that one only: identical version.plist / CodeResources files across kexts, for example.
+    missing = [p for p, linked in expected if p not in found and not linked]
+    linked = [p for p, linked in expected if p not in found and linked]
+    print(f"{len(found)} entries extracted; not found: {len(missing)} files, plus {len(linked)} hard-linked copies "
+          "stored under another path")
     for p in missing[:40]:
         print("  missing:", p)
 
@@ -513,7 +531,7 @@ def manifest_paths(zip_, prefixes, cache):
             raise ValueError(f"fixup.manifest: bad entry at {o:#x}")
         hsize, fields, blobs = h
         if any(fields["PAT"].startswith(p) for p in prefixes) and chr(fields["TYP"]) == "F":
-            out.append(fields["PAT"])
+            out.append((fields["PAT"], "HLC" in fields))
         o += hsize + sum(s for _, s in blobs)
     return out
 
@@ -552,7 +570,7 @@ def main():
     prefixes = [p.lstrip("/") for p in args.prefix]
     expected = manifest_paths(zip_, prefixes, cache)
     if args.list:
-        print("\n".join(expected))
+        print("\n".join(p for p, _ in expected))
         return 0
     extract(zip_, sorted(prefixes, key=key), args.outdir, cache, expected)
     print(f"{fetched / 1e6:.0f} MB fetched in total")
