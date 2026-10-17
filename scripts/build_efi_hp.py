@@ -3,7 +3,7 @@
 Build an OpenCore EFI for the HP Notebook (board 8133, A4-5000 Kabini) test laptop, macOS Monterey 12.
 
     python scripts/build_efi_hp.py <work dir> [--kaberired] [--spoof [--accel]] [--args="..."] [--oclog]
-                                             [--debugoc] [--diag] [--nowifi]
+                                             [--debugoc] [--diag] [--nowifi] [--xhciprobe] [--fchxhcifix]
 
     --debugoc   OpenCore's DEBUG binaries (unpacked/OpenCore-<ver>-DEBUG/) for a verbose log
     --diag      print OpenCore's log on screen through the firmware's own text console (TextRenderer
@@ -63,6 +63,13 @@ KEXTS = [  # (bundle path inside its release folder, executable, comment)
 ]
 # --kaberired: the KaberiRed kext from CI (KaberiRed-*-Debug.zip), unpacked to unpacked/KaberiRed/.
 KABERIRED_KEXT = ("KaberiRed/KaberiRed.kext", "KaberiRed", "KaberiRed (Lilu plugin, iGPU)")
+# USB: macOS never saw the stick on any port (Recovery waits for boot-uuid-media; 2026-10-17). The external ports are
+# on the FCH xHCI 1022:7814 (Linux dump), the generation before CarrizoRed's 7914, whose interrupts never reached macOS.
+# --xhciprobe: CarrizoRed's XHCIProbe (unpacked/XHCIProbe/), observe-only here (-xhciprobe_noact): prints the
+#              controller's interrupt and port state on the verbose screen every 2 s.
+# --fchxhcifix: github.com/CL0utM4N/FCHXHCIFix (unpacked/FCHXHCIFix/), its IOPCIPrimaryMatch extended to 1022:7814.
+XHCIPROBE_KEXT = ("XHCIProbe/XHCIProbe.kext", "XHCIProbe", "Diagnostic: xHCI state on the verbose screen")
+FCHXHCIFIX_KEXT = ("FCHXHCIFix/FCHXHCIFix.kext", "FCHXHCIFix", "USB: service the FCH xHCI if its interrupts are lost")
 
 # Apple's HFS+ driver instead of OpenCore's much slower OpenHfsPlus.efi; it isn't in OpenCore's release. The *Legacy*
 # build: HfsPlus.efi executes RDRAND, which Jaguar doesn't have, and the firmware hung loading it (2026-10-17: the
@@ -194,6 +201,8 @@ def main():
     adds = []
     # --nowifi: leave AirportItlwm out (suspected of the freeze in Recovery, 2026-10-17).
     kexts = [k for k in KEXTS if not ("--nowifi" in opts and k[1] == "AirportItlwm")]
+    kexts += [XHCIPROBE_KEXT] if "--xhciprobe" in opts else []
+    kexts += [FCHXHCIFIX_KEXT] if "--fchxhcifix" in opts else []
     for pattern, exe, comment in kexts + ([KABERIRED_KEXT] if with_kr else []):
         src = one(unpacked, pattern)
         if "/PlugIns/" not in pattern:
@@ -204,6 +213,13 @@ def main():
         adds.append({"Arch": "Any", "BundlePath": rel, "Comment": comment, "Enabled": True,
                      "ExecutablePath": f"Contents/MacOS/{exe}", "MaxKernel": "", "MinKernel": "",
                      "PlistPath": "Contents/Info.plist"})
+    if "--fchxhcifix" in opts:
+        info = ocdir / "Kexts" / "FCHXHCIFix.kext" / "Contents" / "Info.plist"
+        plist = plistlib.load(open(info, "rb"))
+        for personality in plist["IOKitPersonalities"].values():
+            if "0x78141022" not in personality["IOPCIPrimaryMatch"]:
+                personality["IOPCIPrimaryMatch"] += " 0x78141022"
+        plistlib.dump(plist, open(info, "wb"))
     cfg["Kernel"]["Add"] = adds
     cfg["Kernel"]["Block"] = []
     cfg["Kernel"]["Force"] = []
@@ -243,6 +259,8 @@ def main():
         boot["boot-args"] += " -krdbg krpanicat=60"
         if with_spoof and "--accel" not in opts:
             boot["boot-args"] += " -krnoaccel"
+    if "--xhciprobe" in opts:
+        boot["boot-args"] += " -xhciprobe_noact"
     for arg in opts:
         if arg.startswith("--args="):
             boot["boot-args"] += " " + arg[len("--args="):]
