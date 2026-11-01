@@ -22,6 +22,7 @@
 //    A level-triggered pin stuck with remote IRR is an interrupt that was delivered and never acknowledged.
 //  - cpu: the local APIC ID of the CPU the line was taken on.
 //  - smm: gaps in the wait: <count>/<total us>/<longest us> (below).
+//  - idle: what machine_idle does: "hlt" (sti; hlt), "nop" (the EFI builder's --nohlt patch landed) or "?".
 //
 //  The probe waits by spinning, not sleeping. With IOSleep it stopped at the freeze along with every other sleeping
 //  thread (the timer interrupt stops arriving; 2026-10-17 and 2026-11-01), so it couldn't show the freeze itself;
@@ -46,6 +47,8 @@ namespace {
 	constexpr uint16_t Pm1Status = 0x400, Pm1Enable = 0x402, PmTimer = 0x408, Gpe0Status = 0x420, Gpe0Enable = 0x424;
 	constexpr uint32_t TickMs = 250, RunSeconds = 120;
 	constexpr uint64_t SliceNs = 1000000, GapNs = 20000;
+
+	const char *idleState = "?";
 
 	inline uint16_t inw(uint16_t port) {
 		uint16_t v;
@@ -176,8 +179,9 @@ namespace {
 			}
 
 			IOLog("KRP %u t=%llu d=%llu/%llu/%llu irr=%s isr=%s tpr=%x lvtt=%x/%x/%x pm1=%04x/%04x gpe=%08x/%08x hpet=%s "
-				"ioapic=%s cpu=%u smm=%llu/%llu/%llu\n", n, sinceStart / 1000000, ns / 1000000, hpetMs, pmMs, irr, isr, tpr,
-				lvtt, init, cur, pm1s, pm1e, gpes, gpee, hp, io, apicId, gapCount, gapSum / 1000, gapMax / 1000);
+				"ioapic=%s cpu=%u smm=%llu/%llu/%llu idle=%s\n", n, sinceStart / 1000000, ns / 1000000, hpetMs, pmMs, irr,
+				isr, tpr, lvtt, init, cur, pm1s, pm1e, gpes, gpee, hp, io, apicId, gapCount, gapSum / 1000, gapMax / 1000,
+				idleState);
 		}
 		OSSafeReleaseNULL(lapicMap);
 		OSSafeReleaseNULL(hpetMap);
@@ -196,4 +200,20 @@ void PlatformProbe::start() {
 		thread_deallocate(thread);
 	else
 		IOLog("KRP: failed to start the probe thread\n");
+}
+
+void PlatformProbe::checkIdle(KernelPatcher &patcher) {
+	auto func = patcher.solveSymbol(KernelPatcher::KernelID, "_machine_idle");
+	patcher.clearError();
+	if (!func)
+		return;
+	// Monterey 21.6.0: `sti; hlt; cli` once, at +0x1C8; the --nohlt patch makes it `sti; nop; cli`.
+	auto *code = reinterpret_cast<const uint8_t *>(func);
+	for (size_t i = 0; i + 2 < 0x400; i++) {
+		if (code[i] != 0xFB || code[i + 2] != 0xFA || (code[i + 1] != 0xF4 && code[i + 1] != 0x90))
+			continue;
+		idleState = code[i + 1] == 0xF4 ? "hlt" : "nop";
+		IOLog("KRP: machine_idle: %s at +0x%zx\n", idleState, i);
+		return;
+	}
 }

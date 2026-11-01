@@ -386,6 +386,7 @@ void KRDriver::init() {
 }
 
 void KRDriver::processPatcher(KernelPatcher &patcher) {
+	PlatformProbe::checkIdle(patcher);
 	auto *devInfo = DeviceInfo::create();
 	if (devInfo) {
 		// Lilu classifies the iGPU by its device-id property, so once that is spoofed to a dGPU's ID through
