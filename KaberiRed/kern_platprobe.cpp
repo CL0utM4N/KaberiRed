@@ -22,7 +22,8 @@
 //    A level-triggered pin stuck with remote IRR is an interrupt that was delivered and never acknowledged.
 //  - cpu: the local APIC ID of the CPU the line was taken on.
 //  - smm: gaps in the wait: <count>/<total us>/<longest us> (below).
-//  - idle: what machine_idle does: "hlt" (sti; hlt), "nop" (the EFI builder's --nohlt patch landed) or "?".
+//  - idle: what machine_idle does: "hlt" (sti; hlt), "nop" (the EFI builder's --nohlt patch landed), "nosym"
+//    (Lilu couldn't solve _machine_idle, as in Recovery on 2026-11-01) or "?" (no such instruction found).
 //
 //  The probe waits by spinning, not sleeping. With IOSleep it stopped at the freeze along with every other sleeping
 //  thread (the timer interrupt stops arriving; 2026-10-17 and 2026-11-01), so it couldn't show the freeze itself;
@@ -100,6 +101,8 @@ namespace {
 		// The I/O APIC is read through an index register, safe only with one CPU (the cpus=1 boot-arg).
 		uint32_t cpus = 0;
 		bool oneCpu = PE_parse_boot_argn("cpus", &cpus, sizeof(cpus)) && cpus == 1;
+		uint32_t panicAt = 0;
+		PE_parse_boot_argn("krprobepanic", &panicAt, sizeof(panicAt));
 		IOLog("KRP: start (spin wait): lapic %d hpet %d (period %llu fs, %u timers) ioapic %d (%s); pmtmr %08x\n",
 			lapic != nullptr, hpet != nullptr, hpetPeriodFs, hpet ? static_cast<uint32_t>(((hpet[0] >> 8) & 0x1F) + 1) : 0,
 			ioapic != nullptr, oneCpu ? "read" : "skipped: more than one CPU", inl(PmTimer));
@@ -182,6 +185,11 @@ namespace {
 				"ioapic=%s cpu=%u smm=%llu/%llu/%llu idle=%s\n", n, sinceStart / 1000000, ns / 1000000, hpetMs, pmMs, irr,
 				isr, tpr, lvtt, init, cur, pm1s, pm1e, gpes, gpee, hp, io, apicId, gapCount, gapSum / 1000, gapMax / 1000,
 				idleState);
+			// krprobepanic=<s>: panic from here, the one thread known to survive the freeze. On the way into the
+			// debugger XNU stops every other CPU and names those that don't answer ("mp_kdp_enter() NMI pending on
+			// cpus", "Uninterruptible processor(s)"), i.e. any CPU stuck with interrupts off.
+			if (panicAt && sinceStart / 1000000000ULL >= panicAt)
+				panic("KRP: krprobepanic=%u: deliberate panic from the platform probe", panicAt);
 		}
 		OSSafeReleaseNULL(lapicMap);
 		OSSafeReleaseNULL(hpetMap);
@@ -205,8 +213,10 @@ void PlatformProbe::start() {
 void PlatformProbe::checkIdle(KernelPatcher &patcher) {
 	auto func = patcher.solveSymbol(KernelPatcher::KernelID, "_machine_idle");
 	patcher.clearError();
-	if (!func)
+	if (!func) {
+		idleState = "nosym";
 		return;
+	}
 	// Monterey 21.6.0: `sti; hlt; cli` once, at +0x1C8; the --nohlt patch makes it `sti; nop; cli`.
 	auto *code = reinterpret_cast<const uint8_t *>(func);
 	for (size_t i = 0; i + 2 < 0x400; i++) {

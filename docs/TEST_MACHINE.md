@@ -130,3 +130,8 @@ GPU comes up fully (kabini microcode, 512 MB VRAM).
   nothing stuck in IRR/ISR, `smm=0/0/0` throughout (no firmware time). So the CPUs that idle don't come back, which
   fits every earlier run, including the A4-5000's single-CPU freezes with a dead keyboard. Next test: `--nohlt` again,
   now with the probe's `idle=` field (`nop` once KaberiRed reads `sti; nop` in `machine_idle`) proving it landed.
+- **`--nohlt` (HP 15-f008cl):** the OpenCore log confirms it applied (`machine_idle: sti; hlt -> sti; nop … replace
+  count - 1`), and the boot froze the same way: **not idle/HLT**. (The probe's `idle=` read `?`: Lilu couldn't solve
+  `_machine_idle` in Recovery.) What fits every run: one CPU stuck with interrupts off, so the timers queued on it
+  never fire and the threads waiting on them never wake. Next test: `krprobepanic=30`, a deliberate panic from the
+  probe (alive through the freeze); on the way into the debugger XNU names CPUs that don't answer its IPI.
