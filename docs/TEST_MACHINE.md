@@ -98,3 +98,20 @@ Monterey.
 3. Only then the `device-id` spoof, with `-krnoaccel` so the display controller comes up on its own.
 
 Keep a USB stick with the unspoofed config to recover.
+
+## HP 15-f008cl, AMD A6-5200 (Kabini), from 2026-11-01
+
+| | |
+|---|---|
+| CPU | A6-5200: 4 × Jaguar, 2.0 GHz. AVX, BMI1, MOVBE; no AVX2/BMI2/FMA/RDRAND (same OpenCore choices as the A4-5000: `HfsPlusLegacy.efi`, 4 cores) |
+| GPU | Radeon HD 8400: **1002:9830 rev 0x00**, subsystem 103C:216F; 512 MB carve-out, BAR0 256 MB at `0xE0000000` |
+| Model, firmware | HP 15 Notebook PC, board 2330, Insyde **F.21 (2014-09-25)**, UEFI 2.3.1 without a MAT |
+| Memory | 1 × 4 GB (single channel) |
+| ACPI | **has VFCT** (the VBIOS comes through ACPI, so KaberiRed's VFCT path applies), plus WDAT/WDRT (watchdog tables); EC0 under `\_SB.PCI0.LPC0`; HPET enabled under macOS (OSTB defaults to 0x61) |
+| Display | **LVDS** panel (not eDP), HDMI, VGA |
+| Input | PS/2 keyboard, Synaptics PS/2 touchpad (fw 7.5) |
+| Network | Realtek RTL8188EE Wi-Fi (10EC:8179, **no macOS driver**), Realtek RTL8106E Ethernet (10EC:8136, no prebuilt driver) |
+| Other | FCH xHCI 1022:7814 + EHCI/OHCI as on the A4-5000; RTS5229 card reader (10EC:5229) |
+
+EFI: `python scripts/build_efi_hp.py ../KaberiRed-RE/efi-hp15f --machine=hp15-f008cl ...`. Under Linux (`radeon`) the
+GPU comes up fully (kabini microcode, 512 MB VRAM).

@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """
-Build an OpenCore EFI for the HP Notebook (board 8133, A4-5000 Kabini) test laptop, macOS Monterey 12.
+Build an OpenCore EFI for the Kabini HP test laptops, macOS Monterey 12.
 
-    python scripts/build_efi_hp.py <work dir> [--kaberired] [--spoof [--accel]] [--args="..."] [--oclog]
+    python scripts/build_efi_hp.py <work dir> [--machine=<name>] [--kaberired [--nopanicat]] [--spoof [--accel]]
+                                             [--args="..."] [--oclog]
                                              [--debugoc] [--diag] [--nowifi] [--xhciprobe] [--fchxhcifix] [--nousb2]
                                              [--minimal] [--noecgpe] [--novarwrite] [--nohlt]
 
+    --machine   hp-8133 (default): HP Notebook board 8133, A4-5000, Elantech trackpad, Intel 7260 Wi-Fi
+                hp15-f008cl: HP 15-f008cl (board 2330), A6-5200, Synaptics touchpad, Realtek RTL8188EE Wi-Fi (no macOS
+                driver). Both: Insyde UEFI 2.3.1 without a MAT, EC0 under \\_SB.PCI0.LPC0, FCH xHCI 7814, 4 Jaguar cores.
+    --nopanicat with --kaberired: no krpanicat=60 (the deliberate report panic), e.g. to install
     --debugoc   OpenCore's DEBUG binaries (unpacked/OpenCore-<ver>-DEBUG/) for a verbose log
     --diag      print OpenCore's log on screen through the firmware's own text console (TextRenderer
                 SystemText) and to a file on the stick: for a black screen before the picker
@@ -41,7 +46,13 @@ import sys
 import uuid
 from pathlib import Path
 
-CORE_COUNT = 4                      # A4-5000: 4 Jaguar cores
+CORE_COUNT = 4                      # A4-5000, A6-5200: 4 Jaguar cores
+MACHINES = {
+    "hp-8133": {"trackpad": "Elantech PS/2 trackpad (ETD0706)", "wifi": True},
+    # HP 15-f008cl: Synaptics PS/2 touchpad (Linux: SynPS/2, fw 7.5), RTL8188EE Wi-Fi with no macOS driver, RTL8106E
+    # Ethernet, LVDS panel. Same EC path, PCI layout of the FCH and HPET/_OSI behaviour as the hp-8133 (DSDT, 2026-11-01).
+    "hp15-f008cl": {"trackpad": "Synaptics PS/2 touchpad", "wifi": False},
+}
 SMBIOS_MODEL = "iMac19,1"           # Monterey-supported, AMD (Polaris) graphics. Not MacPro6,1/7,1 or iMacPro1,1:
 # AppleIntelMCEReporter matches those board-ids and panics on AMD CPUs (CarrizoRed, 2026-10-09).
 BOOT_ARGS = "-v keepsyms=1 debug=0x100 npci=0x3000 msgbuf=1048576"
@@ -58,7 +69,7 @@ KEXTS = [  # (bundle path inside its release folder, executable, comment)
     ("VoodooPS2Controller-*/VoodooPS2Controller.kext/Contents/PlugIns/VoodooPS2Keyboard.kext", "VoodooPS2Keyboard",
      "PS/2 keyboard"),
     ("VoodooPS2Controller-*/VoodooPS2Controller.kext/Contents/PlugIns/VoodooPS2Trackpad.kext", "VoodooPS2Trackpad",
-     "Elantech PS/2 trackpad (ETD0706)"),
+     "PS/2 trackpad"),
     ("RestrictEvents-*/RestrictEvents.kext", "RestrictEvents", "CPU name, misc. fixes"),
     ("AirportItlwm-*-Monterey/AirportItlwm.kext", "AirportItlwm", "Intel Wireless 7260 (Wi-Fi, also in Recovery)"),
 ]
@@ -129,6 +140,10 @@ def main():
     opts = sys.argv[1:]
     args = [a for a in opts if not a.startswith("--")]
     with_kr = "--kaberired" in opts
+    machine = next((a.split("=", 1)[1] for a in opts if a.startswith("--machine=")), "hp-8133")
+    if machine not in MACHINES:
+        die(f"unknown machine {machine}: one of {', '.join(MACHINES)}")
+    profile = MACHINES[machine]
     with_spoof = "--spoof" in opts
     if with_spoof and not with_kr:
         die("--spoof needs --kaberired")
@@ -223,7 +238,8 @@ def main():
     # --- Kernel -----------------------------------------------------------------------------------
     adds = []
     # --nowifi: leave AirportItlwm out (suspected of the freeze in Recovery, 2026-10-17).
-    kexts = [k for k in KEXTS if not ("--nowifi" in opts and k[1] == "AirportItlwm")]
+    kexts = [k for k in KEXTS if not (("--nowifi" in opts or not profile["wifi"]) and k[1] == "AirportItlwm")]
+    kexts = [(p, e, profile["trackpad"] if e == "VoodooPS2Trackpad" else c) for p, e, c in kexts]
     # --minimal: baseline with only what macOS needs on AMD (Lilu + VirtualSMC, + ECEnabler), to tell the add-on kexts (battery/EC,
     # PS/2, RestrictEvents, Wi-Fi) apart from macOS itself in the total freeze after rooting (2026-10-17).
     if "--minimal" in opts:
@@ -297,7 +313,7 @@ def main():
     boot["boot-args"] = BOOT_ARGS
     if with_kr:
         # KaberiRed's first runs: the report at 60 s. Spoof tests keep the accelerator off unless --accel.
-        boot["boot-args"] += " -krdbg krpanicat=60"
+        boot["boot-args"] += " -krdbg" + ("" if "--nopanicat" in opts else " krpanicat=60")
         if with_spoof and "--accel" not in opts:
             boot["boot-args"] += " -krnoaccel"
     if "--xhciprobe" in opts:
@@ -326,7 +342,7 @@ def main():
     cfg["UEFI"]["Quirks"].update(ReleaseUsbOwnership=True, RequestBootVarRouting=True, UnblockFsConnect=False)
 
     plistlib.dump(cfg, open(ocdir / "config.plist", "wb"), sort_keys=False)
-    print(f"EFI written to {usb}")
+    print(f"EFI for {machine} written to {usb}")
     print(f"boot-args: {boot['boot-args']}")
     print(f"SMBIOS {SMBIOS_MODEL}, serials stored in {work / 'smbios.plist'}")
 
