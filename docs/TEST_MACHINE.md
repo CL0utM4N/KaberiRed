@@ -124,3 +124,9 @@ GPU comes up fully (kabini microcode, 512 MB VRAM).
   enable (PM 0x50, `HPAD &= ~0x1F`). Linux and Windows answer the Windows strings and keep it. (The A4-5000's probe
   showed the HPET off too; the earlier note here that OSTB defaults to 0x61 was wrong.) Next test: `SSDT-XOSI` with
   the `_OSI` to `XOSI` rename, now in every build: the probe's `hpet=` field shows whether it landed.
+- **`SSDT-XOSI`:** landed (the probe's `hpet=0/0`, no longer all ones) but the same freeze: not the HPET.
+- **Probe with a spin wait (no sleeping):** `KRP` went on to line 185 (47 s) after the boot's own output stopped. CPU 0,
+  kept busy by the probe, stayed alive: its APIC timer (vector 0xDD, ~10 ms one-shot) kept firing and being re-armed,
+  nothing stuck in IRR/ISR, `smm=0/0/0` throughout (no firmware time). So the CPUs that idle don't come back, which
+  fits every earlier run, including the A4-5000's single-CPU freezes with a dead keyboard. Next test: `--nohlt` again,
+  now with the probe's `idle=` field (`nop` once KaberiRed reads `sti; nop` in `machine_idle`) proving it landed.
