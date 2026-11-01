@@ -23,6 +23,7 @@ Build an OpenCore EFI for the Kabini HP test laptops, macOS Monterey 12.
     downloads/AMD_Vanilla-patches.plist     github.com/AMD-OSX/AMD_Vanilla patches.plist
     downloads/HfsPlusLegacy.efi             github.com/acidanthera/OcBinaryData Drivers/HfsPlusLegacy.efi (no RDRAND)
     acpi/SSDT-EC-USBX-LAPTOP.aml            compiled from docs/opencore/SSDT-EC-USBX-LAPTOP.dsl (iasl)
+    acpi/SSDT-XOSI.aml                      compiled from docs/opencore/SSDT-XOSI.dsl (iasl)
     recovery/com.apple.recovery.boot/       Monterey Recovery from OpenCore's macrecovery.py
                                             (-b Mac-FFE5EF870D7BA81A -m 00000000000000000 download)
 and receives:
@@ -34,8 +35,9 @@ rebuilding keeps the same identity. They never go into the repository.
 Choices follow the Dortania OpenCore Install Guide for AMD family 15h/16h and CarrizoRed's laptop EFI, adjusted from
 this machine's own data (docs/TEST_MACHINE.md): Insyde UEFI 2.3.1 without a Memory Attributes Table, no Above-4G
 option, 4 CPU cores, real EC named EC0 under \\_SB.PCI0.LPC0, PS/2 keyboard and Elantech trackpad (ETD0706), Intel
-Wireless 7260 (AirportItlwm), Realtek RTL8101E Ethernet (no maintained binary driver: Recovery uses Wi-Fi). The
-firmware already enables the HPET under macOS (OSTB defaults to 0x61), so unlike CarrizoRed's laptop no _OSI patch.
+Wireless 7260 (AirportItlwm), Realtek RTL8101E Ethernet (no maintained binary driver: Recovery uses Wi-Fi). Both
+DSDTs decide the OS from _OSI("Windows 20xx"); macOS answers only "Darwin", and HPET._STA then switches the HPET off
+(the probe read all ones, 2026-11-01), so _OSI is renamed to XOSI and SSDT-XOSI answers as Windows 8.1 does.
 """
 
 import os
@@ -90,6 +92,7 @@ DRIVERS = ["OpenRuntime.efi", "HfsPlusLegacy.efi", "ResetNvramEntry.efi"]
 
 SSDTS = {  # compiled from docs/opencore/<name>.dsl into <work dir>/acpi/
     "SSDT-EC-USBX-LAPTOP.aml": "Fake EC + USBX (laptop, real EC0 under LPC0)",
+    "SSDT-XOSI.aml": "_OSI answers as Windows 8.1 (with the DSDT's _OSI to XOSI rename)",
 }
 
 # Bonaire XT: in the IOPCIMatch lists of AMD8000Controller, AMDRadeonX4000 (AMDBonaireGraphicsAccelerator) and
@@ -189,7 +192,11 @@ def main():
     # --- ACPI -------------------------------------------------------------------------------------
     cfg["ACPI"]["Add"] = [{"Comment": SSDTS[n], "Enabled": True, "Path": n} for n in SSDTS]
     cfg["ACPI"]["Delete"] = []
-    cfg["ACPI"]["Patch"] = []
+    # With SSDT-XOSI. DSDT only: SSDT8 (AMD's) asks _OSI("Windows 2012") and _OSI("Linux") for itself.
+    cfg["ACPI"]["Patch"] = [{
+        "Base": "", "BaseSkip": 0, "Comment": "_OSI to XOSI", "Count": 0, "Enabled": True,
+        "Find": b"_OSI", "Limit": 0, "Mask": b"", "OemTableId": bytes(8),
+        "Replace": b"XOSI", "ReplaceMask": b"", "Skip": 0, "TableLength": 0, "TableSignature": b"DSDT"}]
     if "--noecgpe" in opts:
         # Test: keep macOS from listening to the EC's event line (GPE 3), in case the EC floods it (the battery is dead,
         # and _Q09 is the battery-status event). Renames only EC0's Name (_GPE, 0x03): its bytes occur once in the

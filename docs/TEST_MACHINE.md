@@ -107,7 +107,7 @@ Keep a USB stick with the unspoofed config to recover.
 | GPU | Radeon HD 8400: **1002:9830 rev 0x00**, subsystem 103C:216F; 512 MB carve-out, BAR0 256 MB at `0xE0000000` |
 | Model, firmware | HP 15 Notebook PC, board 2330, Insyde **F.21 (2014-09-25)**, UEFI 2.3.1 without a MAT |
 | Memory | 1 × 4 GB (single channel) |
-| ACPI | **has VFCT** (the VBIOS comes through ACPI, so KaberiRed's VFCT path applies), plus WDAT/WDRT (watchdog tables); EC0 under `\_SB.PCI0.LPC0`; HPET enabled under macOS (OSTB defaults to 0x61) |
+| ACPI | **has VFCT** (the VBIOS comes through ACPI, so KaberiRed's VFCT path applies), plus WDAT/WDRT (watchdog tables); EC0 under `\_SB.PCI0.LPC0`; same `HPET._STA` as the A4-5000 (switches the HPET off unless `_OSI` answers a Windows version) |
 | Display | **LVDS** panel (not eDP), HDMI, VGA |
 | Input | PS/2 keyboard, Synaptics PS/2 touchpad (fw 7.5) |
 | Network | Realtek RTL8188EE Wi-Fi (10EC:8179, **no macOS driver**), Realtek RTL8106E Ethernet (10EC:8136, no prebuilt driver) |
@@ -115,3 +115,12 @@ Keep a USB stick with the unspoofed config to recover.
 
 EFI: `python scripts/build_efi_hp.py ../KaberiRed-RE/efi-hp15f --machine=hp15-f008cl ...`. Under Linux (`radeon`) the
 GPU comes up fully (kabini microcode, 512 MB VRAM).
+
+### Install log
+- **2026-11-01, first EFI (4 cores, `-krplatprobe`):** the same freeze as the A4-5000, ~2 s in (`mbinit`, after
+  `AppleUSBLegacyRoot`): `KRP 0` printed at t=250 ms and no `KRP 1`. KaberiRed found the iGPU (9830, VFCT VBIOS
+  injected). The probe line read **`hpet=ffffffffffffffff`**: the HPET doesn't decode under macOS. Cause: both laptops'
+  DSDTs set `OSTB` from `_OSI("Windows 20xx")`, macOS answers only "Darwin", and `HPET._STA` then clears the FCH's HPET
+  enable (PM 0x50, `HPAD &= ~0x1F`). Linux and Windows answer the Windows strings and keep it. (The A4-5000's probe
+  showed the HPET off too; the earlier note here that OSTB defaults to 0x61 was wrong.) Next test: `SSDT-XOSI` with
+  the `_OSI` to `XOSI` rename, now in every build: the probe's `hpet=` field shows whether it landed.
