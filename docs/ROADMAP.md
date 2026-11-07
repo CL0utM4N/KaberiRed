@@ -1,5 +1,10 @@
 # Roadmap
 
+**2026-11-07: merged into UnifiedRed (formerly CarrizoRed); this repository is archived.** **2026-11-03: GCN 2 support moved to CarrizoRed.** It will adapt Apple's current Polaris drivers with Lilu, as for
+Stoney, instead of Monterey's `AMD8000Controller`. The plan is in CarrizoRed's `docs/OLDER_APUS.md`. Phase 1's
+"macOS boots on the test laptop" still applies there: the Kabini boot freeze ([TEST_MACHINE.md](TEST_MACHINE.md))
+blocks either route. Phases 2–4 below are kept as a record of the Monterey route.
+
 Each phase ends with a testable milestone. Test boots cost the tester real time: a visual test is only requested once
 a counter in the report proves the patch in question landed, and one test EFI is rebuilt in place.
 
@@ -45,4 +50,6 @@ a counter in the report proves the patch in question landed, and one test EFI is
 ## Phase 4: Kaveri, then newer macOS
 
 - [ ] Kaveri (DCE 8.1, 4 CRTCs, PPLL0-2, up to 8 CUs, 2 MECs)
-- [ ] Ventura and later with OpenCore Legacy Patcher's legacy-GCN root patches
+- [ ] ~~Ventura and later with OpenCore Legacy Patcher's legacy-GCN root patches~~ Dropped: no OCLP. OpenCore can't
+      inject Monterey's GCN 2 kexts on Big Sur and later, because their dependencies are only in the System KC. Newer
+      macOS comes through CarrizoRed's Polaris route instead

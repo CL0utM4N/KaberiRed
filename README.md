@@ -3,10 +3,16 @@
 A [Lilu](https://github.com/acidanthera/Lilu) plugin that aims to bring macOS graphics (display, then Metal/OpenGL
 acceleration) to AMD's GCN 2 APUs by adapting **Apple's own GCN 2 drivers**: the ones macOS Monterey ships for the
 Bonaire/Hawaii GPUs of the 2013 Mac Pro and 2014 iMac. It's the sister project of
-[CarrizoRed](https://github.com/CL0utM4N/CarrizoRed), which does the same for Carrizo/Stoney with Apple's Polaris
+[CarrizoRed, now UnifiedRed](https://github.com/CL0utM4N/UnifiedRed), which does the same for Carrizo/Stoney with Apple's Polaris
 drivers, and reuses its infrastructure.
 
-**Status: Phase 0 (research and skeleton).** Nothing works yet. See [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Archived (2026-11-07): merged into [UnifiedRed](https://github.com/CL0utM4N/UnifiedRed)** (formerly CarrizoRed),
+> where GCN 2 support is being built on Apple's current Polaris drivers with Lilu, so it works on every macOS UnifiedRed
+> supports, without OpenCore Legacy Patcher. The plan: UnifiedRed's
+> [docs/OLDER_APUS.md](https://github.com/CL0utM4N/UnifiedRed/blob/main/docs/OLDER_APUS.md). This repository's docs
+> are in UnifiedRed's `docs/gcn2/`, its tools in `scripts/` (fetch_macos.py, machotool.py, match_functions.py,
+> dmpstore.py, build_efi_hp.py), and the platform probe is UnifiedRed's `-crplatprobe`. What follows is kept as a record
+> of the Monterey route.
 
 ## Targets
 
@@ -16,8 +22,9 @@ drivers, and reuses its infrastructure.
 | Beema/Mullins ("Godavari") | A4-6210, A6-6310, E1-6010, E2-6110, A10 Micro-6700T | 1002:9850–985F | gfx703, 2 CUs | DCE 8.3 |
 | Kaveri ("Spectre"), later | A10-7850K, A8-7600, FX-7600P | 1002:1304–131D | gfx700, up to 8 CUs | DCE 8.1 |
 
-Kabini/Mullins first, on macOS Monterey 12.7.6, the last release with Apple's GCN 2 drivers. Ventura and later
-(through OpenCore Legacy Patcher's legacy-GCN root patches) come after.
+This project's route targeted Kabini/Mullins first, on macOS Monterey 12.7.6, the last release with Apple's GCN 2
+drivers. Ventura and later can't use those drivers without OpenCore Legacy Patcher. OpenCore can't inject them, because
+their dependencies live in the System kernel collection, and that is why the work moved to CarrizoRed.
 
 ## How
 
